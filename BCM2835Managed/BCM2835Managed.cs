@@ -10,7 +10,7 @@ using System.IO;
 
 namespace BCM2835
 {
-    public unsafe class BCM2835Managed : IDisposable
+    public unsafe static class BCM2835Managed
     {
         #region Constants
 
@@ -368,27 +368,27 @@ namespace BCM2835
 
         #region Variables
 
-        volatile uint* bcm2835_gpio = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_pwm = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_clk = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_pads = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_spi0 = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_bsc0 = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_bsc1 = (uint*)MAP_FAILED;
-        volatile uint* bcm2835_st = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_gpio = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_pwm = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_clk = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_pads = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_spi0 = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_bsc0 = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_bsc1 = (uint*)MAP_FAILED;
+        static volatile uint* bcm2835_st = (uint*)MAP_FAILED;
 
-        uint* bcm2835_peripherals_base = (uint*)BCM2835_PERI_BASE;
-        uint bcm2835_peripherals_size = BCM2835_PERI_SIZE;
+        static uint* bcm2835_peripherals_base = (uint*)BCM2835_PERI_BASE;
+        static uint bcm2835_peripherals_size = BCM2835_PERI_SIZE;
 
         /* Virtual memory address of the mapped peripherals block 
          */
-        uint* bcm2835_peripherals = (uint*)MAP_FAILED;
+        static uint* bcm2835_peripherals = (uint*)MAP_FAILED;
 
         #endregion
 
         #region Life cycle
 
-        public BCM2835Managed()
+        public static void bcm2835_init()
         {
             byte[] buf = new byte[4];
 
@@ -428,7 +428,7 @@ namespace BCM2835
             Syscall.close(memfd);
         }
 
-        public void Dispose()
+        public static void bcm2835_close()
         {
             unmapmem(ref bcm2835_peripherals, bcm2835_peripherals_size);
             bcm2835_peripherals = (uint*)MAP_FAILED;
@@ -467,7 +467,7 @@ namespace BCM2835
         #region Time and delays
 
         /* Read the System Timer Counter (64-bits) */
-        public long bcm2835_st_read()
+        public static long bcm2835_st_read()
         {
             VolatilePointer paddr;
             uint hi, lo;
@@ -500,7 +500,7 @@ namespace BCM2835
         /* Some convenient arduino-like functions
         // milliseconds
         */
-        public void bcm2835_delay(uint millis)
+        public static void bcm2835_delay(uint millis)
         {
             Timespec sleeper = new Timespec();
             Timespec rest = new Timespec();
@@ -511,7 +511,7 @@ namespace BCM2835
         }
 
         /* Delays for the specified number of microseconds with offset */
-        void bcm2835_st_delay(long offset_micros, long micros)
+        public static void bcm2835_st_delay(long offset_micros, long micros)
         {
             long compare = offset_micros + micros;
 
@@ -520,7 +520,7 @@ namespace BCM2835
         }
 
         /* microseconds */
-        void bcm2835_delayMicroseconds(long micros)
+        public static void bcm2835_delayMicroseconds(long micros)
         {
             Timespec t1 = new Timespec();
             Timespec rest = new Timespec();
@@ -547,7 +547,7 @@ namespace BCM2835
         #region Peripherals
 
         /* Function to return the pointers to the hardware register bases */
-        public uint* bcm2835_regbase(bcm2835RegisterBase regbase)
+        public static uint* bcm2835_regbase(bcm2835RegisterBase regbase)
         {
             switch (regbase)
             {
@@ -575,7 +575,7 @@ namespace BCM2835
          *
          */
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public uint bcm2835_peri_read(VolatilePointer paddr)
+        public static uint bcm2835_peri_read(VolatilePointer paddr)
         {
             uint ret;
 
@@ -593,7 +593,7 @@ namespace BCM2835
          * The MB can be explicit, or one of the barrier read/write calls.
          */
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public uint bcm2835_peri_read_nb(VolatilePointer paddr)
+        public static uint bcm2835_peri_read_nb(VolatilePointer paddr)
         {
             return *paddr.Address;
         }
@@ -601,7 +601,7 @@ namespace BCM2835
         /* Write with memory barriers to peripheral
          */
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void bcm2835_peri_write(VolatilePointer paddr, uint value)
+        public static void bcm2835_peri_write(VolatilePointer paddr, uint value)
         {
             Syscall.sync();
 
@@ -613,7 +613,7 @@ namespace BCM2835
 
         /* write to peripheral without the write barrier */
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void bcm2835_peri_write_nb(VolatilePointer paddr, uint value)
+        public static void bcm2835_peri_write_nb(VolatilePointer paddr, uint value)
         {
             *paddr.Address = value;
         }
@@ -621,7 +621,7 @@ namespace BCM2835
         /* Set/clear only the bits in value covered by the mask
          * This is not atomic - can be interrupted.
          */
-        public void bcm2835_peri_set_bits(VolatilePointer paddr, uint value, uint mask)
+        public static void bcm2835_peri_set_bits(VolatilePointer paddr, uint value, uint mask)
         {
 
             uint v = bcm2835_peri_read(paddr);
@@ -651,7 +651,7 @@ namespace BCM2835
         // So the 3 bits for port X are:
         //      X / 10 + ((X % 10) * 3)
         */
-        public void bcm2835_gpio_fsel(RPiGPIOPin pin, bcm2835FunctionSelect mode)
+        public static void bcm2835_gpio_fsel(RPiGPIOPin pin, bcm2835FunctionSelect mode)
         {
             /* Function selects are 10 pins per 32 bit word, 3 bits per pin */
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPFSEL0 / 4 + ((byte)pin / 10);
@@ -662,7 +662,7 @@ namespace BCM2835
         }
 
         /* Set output pin */
-        public void bcm2835_gpio_set(RPiGPIOPin pin)
+        public static void bcm2835_gpio_set(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPSET0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -670,7 +670,7 @@ namespace BCM2835
         }
 
         /* Clear output pin */
-        public void bcm2835_gpio_clr(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPCLR0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -678,21 +678,21 @@ namespace BCM2835
         }
 
         /* Set all output pins in the mask */
-        public void bcm2835_gpio_set_multi(uint mask)
+        public static void bcm2835_gpio_set_multi(uint mask)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPSET0 / 4;
             bcm2835_peri_write(paddr, mask);
         }
 
         /* Clear all output pins in the mask */
-        public void bcm2835_gpio_clr_multi(uint mask)
+        public static void bcm2835_gpio_clr_multi(uint mask)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPCLR0 / 4;
             bcm2835_peri_write(paddr, mask);
         }
 
         /* Read input pin */
-        public bool bcm2835_gpio_lev(RPiGPIOPin pin)
+        public static bool bcm2835_gpio_lev(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPLEV0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -703,7 +703,7 @@ namespace BCM2835
         /* See if an event detection bit is set
         // Sigh cant support interrupts yet
         */
-        public bool bcm2835_gpio_eds(RPiGPIOPin pin)
+        public static bool bcm2835_gpio_eds(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPEDS0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -711,7 +711,7 @@ namespace BCM2835
             return (value & (1 << shift)) != 0 ? HIGH : LOW;
         }
 
-        public uint bcm2835_gpio_eds_multi(uint mask)
+        public static uint bcm2835_gpio_eds_multi(uint mask)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPEDS0 / 4;
             uint value = bcm2835_peri_read(paddr);
@@ -719,7 +719,7 @@ namespace BCM2835
         }
 
         /* Write a 1 to clear the bit in EDS */
-        public void bcm2835_gpio_set_eds(RPiGPIOPin pin)
+        public static void bcm2835_gpio_set_eds(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPEDS0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -727,21 +727,21 @@ namespace BCM2835
             bcm2835_peri_write(paddr, value);
         }
 
-        public void bcm2835_gpio_set_eds_multi(uint mask)
+        public static void bcm2835_gpio_set_eds_multi(uint mask)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPEDS0 / 4;
             bcm2835_peri_write(paddr, mask);
         }
 
         /* Rising edge detect enable */
-        public void bcm2835_gpio_ren(RPiGPIOPin pin)
+        public static void bcm2835_gpio_ren(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPREN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_ren(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_ren(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPREN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -750,14 +750,14 @@ namespace BCM2835
         }
 
         /* Falling edge detect enable */
-        public void bcm2835_gpio_fen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_fen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPFEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_fen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_fen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPFEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -766,14 +766,14 @@ namespace BCM2835
         }
 
         /* High detect enable */
-        public void bcm2835_gpio_hen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_hen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPHEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_hen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_hen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPHEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -782,14 +782,14 @@ namespace BCM2835
         }
 
         /* Low detect enable */
-        public void bcm2835_gpio_len(RPiGPIOPin pin)
+        public static void bcm2835_gpio_len(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPLEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_len(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_len(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPLEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -798,14 +798,14 @@ namespace BCM2835
         }
 
         /* Async rising edge detect enable */
-        public void bcm2835_gpio_aren(RPiGPIOPin pin)
+        public static void bcm2835_gpio_aren(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPAREN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_aren(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_aren(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPAREN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -814,14 +814,14 @@ namespace BCM2835
         }
 
         /* Async falling edge detect enable */
-        public void bcm2835_gpio_afen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_afen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPAFEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
             uint value = (uint)1 << shift;
             bcm2835_peri_set_bits(paddr, value, value);
         }
-        public void bcm2835_gpio_clr_afen(RPiGPIOPin pin)
+        public static void bcm2835_gpio_clr_afen(RPiGPIOPin pin)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPAFEN0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -830,7 +830,7 @@ namespace BCM2835
         }
 
         /* Set pullup/down */
-        public void bcm2835_gpio_pud(bcm2835PUDControl pud)
+        public static void bcm2835_gpio_pud(bcm2835PUDControl pud)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPPUD / 4;
             bcm2835_peri_write(paddr, (byte)pud);
@@ -839,7 +839,7 @@ namespace BCM2835
         /* Pullup/down clock
         // Clocks the value of pud into the GPIO pin
         */
-        public void bcm2835_gpio_pudclk(RPiGPIOPin pin, bool on)
+        public static void bcm2835_gpio_pudclk(RPiGPIOPin pin, bool on)
         {
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPPUDCLK0 / 4 + (byte)pin / 32;
             byte shift = (byte)((byte)pin % 32);
@@ -847,7 +847,7 @@ namespace BCM2835
         }
 
         /* Read GPIO pad behaviour for groups of GPIOs */
-        public uint bcm2835_gpio_pad(bcm2835PadGroup group)
+        public static uint bcm2835_gpio_pad(bcm2835PadGroup group)
         {
             if (bcm2835_pads == (uint*)MAP_FAILED)
                 return 0;
@@ -860,7 +860,7 @@ namespace BCM2835
         // powerup value for all pads is
         // BCM2835_PAD_SLEW_RATE_UNLIMITED | BCM2835_PAD_HYSTERESIS_ENABLED | BCM2835_PAD_DRIVE_8mA
         */
-        public void bcm2835_gpio_set_pad(bcm2835PadGroup group, uint control)
+        public static void bcm2835_gpio_set_pad(bcm2835PadGroup group, uint control)
         {
             if (bcm2835_pads == (uint*)MAP_FAILED)
                 return;
@@ -869,7 +869,7 @@ namespace BCM2835
             bcm2835_peri_write(paddr, control | BCM2835_PAD_PASSWRD);
         }
 
-        public void bcm2835_gpio_write(RPiGPIOPin pin, bool on)
+        public static void bcm2835_gpio_write(RPiGPIOPin pin, bool on)
         {
             if (on)
                 bcm2835_gpio_set(pin);
@@ -878,7 +878,7 @@ namespace BCM2835
         }
 
         /* Set the state of a all 32 outputs in the mask to on or off */
-        public void bcm2835_gpio_write_multi(uint mask, bool on)
+        public static void bcm2835_gpio_write_multi(uint mask, bool on)
         {
             if (on)
                 bcm2835_gpio_set_multi(mask);
@@ -887,7 +887,7 @@ namespace BCM2835
         }
 
         /* Set the state of a all 32 outputs in the mask to the values in value */
-        public void bcm2835_gpio_write_mask(uint value, uint mask)
+        public static void bcm2835_gpio_write_mask(uint value, uint mask)
         {
             bcm2835_gpio_set_multi(value & mask);
             bcm2835_gpio_clr_multi((~value) & mask);
@@ -911,7 +911,7 @@ namespace BCM2835
         //
         // RPi has P1-03 and P1-05 with 1k8 pullup resistor
         */
-        public void bcm2835_gpio_set_pud(RPiGPIOPin pin, bcm2835PUDControl pud)
+        public static void bcm2835_gpio_set_pud(RPiGPIOPin pin, bcm2835PUDControl pud)
         {
             bcm2835_gpio_pud(pud);
             bcm2835_delayMicroseconds(10);
@@ -925,12 +925,12 @@ namespace BCM2835
 
         #region SPI
 
-        public int bcm2835_spi_begin()
+        public static bool bcm2835_spi_begin()
         {
             VolatilePointer paddr;
 
             if (bcm2835_spi0 == (uint*)MAP_FAILED)
-                return 0; /* bcm2835_init() failed, or not root */
+                return false; /* bcm2835_init() failed, or not root */
 
             /* Set the SPI0 pins to the Alt 0 function to enable SPI0 access on them */
             bcm2835_gpio_fsel(RPiGPIOPin.RPI_GPIO_P1_26, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_ALT0); /* CE1 */
@@ -946,10 +946,10 @@ namespace BCM2835
             /* Clear TX and RX fifos */
             bcm2835_peri_write_nb(paddr, BCM2835_SPI0_CS_CLEAR);
 
-            return 1; // OK
+            return true; // OK
         }
 
-        public void bcm2835_spi_end()
+        public static void bcm2835_spi_end()
         {
             /* Set all the SPI0 pins back to input */
             bcm2835_gpio_fsel(RPiGPIOPin.RPI_GPIO_P1_26, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT); /* CE1 */
@@ -964,13 +964,13 @@ namespace BCM2835
         // rounded down. The maximum SPI clock rate is
         // of the APB clock
         */
-        public void bcm2835_spi_setClockDivider(bcm2835SPIClockDivider divider)
+        public static void bcm2835_spi_setClockDivider(bcm2835SPIClockDivider divider)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CLK / 4;
             bcm2835_peri_write(paddr, (ushort)divider);
         }
 
-        public void bcm2835_spi_setDataMode(bcm2835SPIMode mode)
+        public static void bcm2835_spi_setDataMode(bcm2835SPIMode mode)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             /* Mask in the CPO and CPHA bits of CS */
@@ -978,7 +978,7 @@ namespace BCM2835
         }
 
         /* Writes (and reads) a single byte to SPI */
-        public byte bcm2835_spi_transfer(byte value)
+        public static byte bcm2835_spi_transfer(byte value)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
@@ -1015,7 +1015,7 @@ namespace BCM2835
         }
 
         /* Writes (and reads) an number of bytes to SPI */
-        public void bcm2835_spi_transfernb(byte[] tbuf, byte[] rbuf, int len)
+        public static void bcm2835_spi_transfernb(byte[] tbuf, byte[] rbuf, int len)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
@@ -1058,7 +1058,7 @@ namespace BCM2835
         }
 
         /* Writes an number of bytes to SPI */
-        public void bcm2835_spi_writenb(byte[] tbuf, int len)
+        public static void bcm2835_spi_writenb(byte[] tbuf, int len)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
@@ -1104,19 +1104,19 @@ namespace BCM2835
         /* Writes (and reads) an number of bytes to SPI
         // Read bytes are copied over onto the transmit buffer
         */
-        public void bcm2835_spi_transfern(byte[] buf, int len)
+        public static void bcm2835_spi_transfern(byte[] buf, int len)
         {
             bcm2835_spi_transfernb(buf, buf, len);
         }
 
-        public void bcm2835_spi_chipSelect(bcm2835SPIChipSelect cs)
+        public static void bcm2835_spi_chipSelect(bcm2835SPIChipSelect cs)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             /* Mask in the CS bits of CS */
             bcm2835_peri_set_bits(paddr, (byte)cs, BCM2835_SPI0_CS_CS);
         }
 
-        public void bcm2835_spi_setChipSelectPolarity(bcm2835SPIChipSelect cs, bool active)
+        public static void bcm2835_spi_setChipSelectPolarity(bcm2835SPIChipSelect cs, bool active)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             byte shift = (byte)(21 + (byte)cs);
@@ -1128,10 +1128,10 @@ namespace BCM2835
 
         #region I2C
 
-        bool i2cv1 = false;
-        int i2c_byte_wait_us = 0;
+        static bool i2cv1 = false;
+        static int i2c_byte_wait_us = 0;
 
-        public int bcm2835_i2c_begin(bool PiV1)
+        public static bool bcm2835_i2c_begin(bool PiV1)
         {
 
             i2cv1 = PiV1;
@@ -1140,7 +1140,7 @@ namespace BCM2835
 
             if (bcm2835_bsc0 == (uint*)MAP_FAILED
             || bcm2835_bsc1 == (uint*)MAP_FAILED)
-                return 0; /* bcm2835_init() failed, or not root */
+                return false; /* bcm2835_init() failed, or not root */
 
             VolatilePointer paddr;
 
@@ -1167,10 +1167,10 @@ namespace BCM2835
             */
             i2c_byte_wait_us = (int)(((float)cdiv / BCM2835_CORE_CLK_HZ) * 1000000 * 9);
 
-            return 1;
+            return true;
         }
 
-        public void bcm2835_i2c_end()
+        public static void bcm2835_i2c_end()
         {
 
             if (i2cv1)
@@ -1187,7 +1187,7 @@ namespace BCM2835
             }
         }
 
-        public void bcm2835_i2c_setSlaveAddress(byte addr)
+        public static void bcm2835_i2c_setSlaveAddress(byte addr)
         {
             /* Set I2C Device Address */
 
@@ -1205,7 +1205,7 @@ namespace BCM2835
         // The divisor must be a power of 2. Odd numbers
         // rounded down.
         */
-        public void bcm2835_i2c_setClockDivider(bcm2835I2CClockDivider divider)
+        public static void bcm2835_i2c_setClockDivider(bcm2835I2CClockDivider divider)
         {
             VolatilePointer paddr;
 
@@ -1223,7 +1223,7 @@ namespace BCM2835
         }
 
         /* set I2C clock divider by means of a baudrate number */
-        public void bcm2835_i2c_set_baudrate(uint baudrate)
+        public static void bcm2835_i2c_set_baudrate(uint baudrate)
         {
             uint divider;
             /* use 0xFFFE mask to limit a max value and round down any odd number */
@@ -1232,7 +1232,7 @@ namespace BCM2835
         }
 
         /* Writes an number of bytes to I2C */
-        public bcm2835I2CReasonCodes bcm2835_i2c_write(byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write(byte[] buf, int len)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1310,7 +1310,7 @@ namespace BCM2835
         }
 
         /* Read an number of bytes from I2C */
-        public bcm2835I2CReasonCodes bcm2835_i2c_read(byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read(byte[] buf, int len)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1393,7 +1393,7 @@ namespace BCM2835
         /* Read an number of bytes from I2C sending a repeated start after writing
         // the required register. Only works if your device supports this mode
         */
-        public bcm2835I2CReasonCodes bcm2835_i2c_read_register_rs(byte regaddr, byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read_register_rs(byte regaddr, byte[] buf, int len)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1493,7 +1493,7 @@ namespace BCM2835
         /* Sending an arbitrary number of bytes before issuing a repeated start 
         // (with no prior stop) and reading a response. Some devices require this behavior.
         */
-        public bcm2835I2CReasonCodes bcm2835_i2c_write_read_rs(byte[] cmds, int cmds_len, byte[] buf, int buf_len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write_read_rs(byte[] cmds, int cmds_len, byte[] buf, int buf_len)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1602,7 +1602,7 @@ namespace BCM2835
             return reason;
         }
 
-        public void bcm2835_pwm_set_clock(bcm2835PWMClockDivider srcDivisor)
+        public static void bcm2835_pwm_set_clock(bcm2835PWMClockDivider srcDivisor)
         {
             if (bcm2835_clk == (uint*)MAP_FAILED
                 || bcm2835_pwm == (uint*)MAP_FAILED)
@@ -1621,7 +1621,7 @@ namespace BCM2835
             bcm2835_peri_write(bcm2835_clk + BCM2835_PWMCLK_CNTL, BCM2835_PWM_PASSWRD | 0x11); /* Source=osc and enable */
         }
 
-        public void bcm2835_pwm_set_mode(byte channel, bool markspace, bool enabled)
+        public static void bcm2835_pwm_set_mode(byte channel, bool markspace, bool enabled)
         {
             if (bcm2835_clk == (uint*)MAP_FAILED
                 || bcm2835_pwm == (uint*)MAP_FAILED)
@@ -1658,7 +1658,7 @@ namespace BCM2835
 
         }
 
-        public void bcm2835_pwm_set_range(byte channel, uint range)
+        public static void bcm2835_pwm_set_range(byte channel, uint range)
         {
             if (bcm2835_clk == (uint*)MAP_FAILED
                || bcm2835_pwm == (uint*)MAP_FAILED)
@@ -1670,7 +1670,7 @@ namespace BCM2835
                 bcm2835_peri_write_nb(bcm2835_pwm + BCM2835_PWM1_RANGE, range);
         }
 
-        void bcm2835_pwm_set_data(byte channel, uint data)
+        public static void bcm2835_pwm_set_data(byte channel, uint data)
         {
             if (bcm2835_clk == (uint*)MAP_FAILED
                || bcm2835_pwm == (uint*)MAP_FAILED)
@@ -1687,14 +1687,18 @@ namespace BCM2835
         #region Extras
         public static unsafe class GPIOExtras
         {
-            static eventData[] events = new eventData[40];
-
+            
             static GPIOExtras()
             {
                 for (int buc = 0; buc < 40; buc++)
                     events[buc] = new eventData();
             }
-            
+
+            #region Eventos
+
+            static eventData[] events = new eventData[40];
+
+
             public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge)
             {
                 int pin_num = (int)pin;
@@ -1719,8 +1723,9 @@ namespace BCM2835
                     Syscall.close(currentEvent.dataFd);
                     return false;
                 }
-
+                
                 currentEvent.used = true;
+                currentEvent.pin = pin;
                 currentEvent.eventThread = new Thread(detectThread);
                 currentEvent.running = true;
                 currentEvent.eventThread.Start(pin_num);
@@ -1793,7 +1798,7 @@ namespace BCM2835
                             if (descriptors[0].revents != 0)// || (pollResult & (POLLERR | POLLHUP | POLLNVAL)))
                             {
 
-                                data.callback(descriptors[0].revents != 0 ? (short)-1 : (short)-2);
+                                data.callback(data.pin, descriptors[0].revents != 0 ? (short)-1 : (short)-2);
                                 remove_event_detector((RPiGPIOPin)pin_num);
                                 return;
                             }
@@ -1801,7 +1806,7 @@ namespace BCM2835
                             Syscall.read(data.dataFd, &readValue, 1);
                             Syscall.lseek(data.dataFd, 0, SeekFlags.SEEK_SET);
 
-                            data.callback(readValue);
+                            data.callback(data.pin, readValue);
                         }
                     }
                 }
@@ -1840,6 +1845,368 @@ namespace BCM2835
                 }
                 catch { return false; }
             }
+
+            #endregion
+
+            #region BitBang
+
+            public static bitbang_port create_bitbang_port(RPiGPIOPin input_pin, RPiGPIOPin output_pin, RPiGPIOPin clock_pin, bool positive_polarity, uint low_delay, uint high_delay)
+            {
+                bitbang_port def = new bitbang_port
+                {
+                    clock_pin = clock_pin,
+                    input_pin = input_pin,
+                    output_pin = output_pin,
+                    positive_polarity = positive_polarity,
+                    high_delay = high_delay,
+                    low_delay = low_delay
+                };
+
+                bcm2835_gpio_fsel(def.input_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+                bcm2835_gpio_fsel(def.output_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(def.clock_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+
+                bcm2835_gpio_clr(def.output_pin);
+                bcm2835_gpio_clr(def.clock_pin);
+
+                return def;
+
+            }
+
+            public static byte read_bitbang_byte(bitbang_port port)
+            {
+                byte value = 0;
+                byte c = 0;
+                if (port.positive_polarity)
+                {
+                    for (c = 0; c < 8; c++)
+                    {
+                        bcm2835_gpio_clr(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+                        bcm2835_gpio_set(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.high_delay);
+                        value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                    }
+                }
+                else
+                {
+                    for (c = 0; c < 8; c++)
+                    {
+                        bcm2835_gpio_set(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+                        bcm2835_gpio_clr(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.high_delay);
+                        value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                    }
+                }
+
+                return value;
+            }
+
+            public static void read_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
+            {
+                byte value = 0;
+                uint x = 0;
+                byte c = 0;
+
+                if (port.positive_polarity)
+                {
+                    for (x = 0; x < length; x++)
+                    {
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                        }
+
+                        buffer[x] = value;
+                        value = 0;
+
+                    }
+                }
+                else
+                {
+                    for (x = 0; x < length; x++)
+                    {
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                        }
+
+                        buffer[x] = value;
+                        value = 0;
+                    }
+                }
+            }
+
+            public static void write_bitbang_byte(bitbang_port port, byte data)
+            {
+                byte c = 0;
+
+                if (port.positive_polarity)
+                {
+                    for (c = 0; c < 8; c++)
+                    {
+                        bcm2835_gpio_clr(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+
+                        if ((data & (1 << c)) != 0)
+                            bcm2835_gpio_set(port.output_pin);
+                        else
+                            bcm2835_gpio_clr(port.output_pin);
+
+                        bcm2835_gpio_set(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+                    }
+                }
+                else
+                {
+                    for (c = 0; c < 8; c++)
+                    {
+                        bcm2835_gpio_set(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+
+                        if ((data & (1 << c)) != 0)
+                            bcm2835_gpio_set(port.output_pin);
+                        else
+                            bcm2835_gpio_clr(port.output_pin);
+
+                        bcm2835_gpio_clr(port.clock_pin);
+                        bcm2835_delayMicroseconds(port.low_delay);
+                    }
+                }
+            }
+
+            public static void write_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
+            {
+                byte data = 0;
+                uint x = 0;
+                byte c = 0;
+
+                if (port.positive_polarity)
+                {
+                    for (x = 0; x < length; x++)
+                    {
+                        data = buffer[x];
+
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+
+                            if ((data & (1 << c)) != 0)
+                                bcm2835_gpio_set(port.output_pin);
+                            else
+                                bcm2835_gpio_clr(port.output_pin);
+
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                        }
+                    }
+                }
+                else
+                {
+                    for (x = 0; x < length; x++)
+                    {
+                        data = buffer[x];
+
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+
+                            if ((data & (1 << c)) != 0)
+                                bcm2835_gpio_set(port.output_pin);
+                            else
+                                bcm2835_gpio_clr(port.output_pin);
+
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                        }
+                    }
+                }
+            }
+
+            #endregion
+
+            #region Nibble
+
+            public static nibble_port create_nibble_port(RPiGPIOPin db4_pin, RPiGPIOPin db5_pin, RPiGPIOPin db6_pin, RPiGPIOPin db7_pin, RPiGPIOPin rs_pin, RPiGPIOPin rw_pin, RPiGPIOPin e_pin, uint low_delay, uint high_delay)
+            {
+                nibble_port port = new nibble_port
+                {
+                    db4_pin = db4_pin,
+                    db5_pin = db5_pin,
+                    db6_pin = db6_pin,
+                    db7_pin = db7_pin,
+                    e_pin = e_pin,
+                    rs_pin = rs_pin,
+                    rw_pin = rw_pin,
+                    high_delay = high_delay,
+                    low_delay = low_delay
+                };
+
+                bcm2835_gpio_fsel(db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(e_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(rs_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(rw_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+
+                bcm2835_gpio_clr(db4_pin);
+                bcm2835_gpio_clr(db5_pin);
+                bcm2835_gpio_clr(db6_pin);
+                bcm2835_gpio_clr(db7_pin);
+                bcm2835_gpio_clr(rs_pin);
+                bcm2835_gpio_clr(rw_pin);
+                bcm2835_gpio_clr(e_pin);
+
+                return port;
+            }
+
+            public static void write_nibble_byte(nibble_port port, bool rs, byte data, bool onlyHalf)
+            {
+                if (port.on_input)
+                {
+                    bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                    bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                    bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                    bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                    
+                    port.on_input = false;
+                }
+
+                bcm2835_gpio_clr(port.rw_pin);
+
+                if (rs)
+                    bcm2835_gpio_set(port.rs_pin);
+                else
+                    bcm2835_gpio_clr(port.rs_pin);
+
+
+                if ((data & 128) != 0)
+                    bcm2835_gpio_set(port.db7_pin);
+                else
+                    bcm2835_gpio_clr(port.db7_pin);
+
+                if ((data & 64) != 0)
+                    bcm2835_gpio_set(port.db6_pin);
+                else
+                    bcm2835_gpio_clr(port.db6_pin);
+
+                if ((data & 32) != 0)
+                    bcm2835_gpio_set(port.db5_pin);
+                else
+                    bcm2835_gpio_clr(port.db5_pin);
+
+                if ((data & 16) != 0)
+                    bcm2835_gpio_set(port.db4_pin);
+                else
+                    bcm2835_gpio_clr(port.db4_pin);
+
+                bcm2835_gpio_clr(port.e_pin);
+                bcm2835_delayMicroseconds(port.high_delay);
+                bcm2835_gpio_set(port.e_pin);
+                bcm2835_delayMicroseconds(port.low_delay);
+
+                if (onlyHalf)
+                    return;
+
+                if ((data & 8) != 0)
+                    bcm2835_gpio_set(port.db7_pin);
+                else
+                    bcm2835_gpio_clr(port.db7_pin);
+
+                if ((data & 4) != 0)
+                    bcm2835_gpio_set(port.db6_pin);
+                else
+                    bcm2835_gpio_clr(port.db6_pin);
+
+                if ((data & 2) != 0)
+                    bcm2835_gpio_set(port.db5_pin);
+                else
+                    bcm2835_gpio_clr(port.db5_pin);
+
+                if ((data & 1) != 0)
+                    bcm2835_gpio_set(port.db4_pin);
+                else
+                    bcm2835_gpio_clr(port.db4_pin);
+
+                bcm2835_gpio_clr(port.e_pin);
+                bcm2835_delayMicroseconds(port.high_delay);
+                bcm2835_gpio_set(port.e_pin);
+                bcm2835_delayMicroseconds(port.low_delay);
+
+            }
+
+            public static byte read_nibble_byte(nibble_port port, bool rs)
+            {
+                if (!port.on_input)
+                {
+                    bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+                    bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+                    bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+                    bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+
+                    port.on_input = true;
+                }
+
+                bcm2835_gpio_set(port.rw_pin);
+
+                if (rs)
+                    bcm2835_gpio_set(port.rs_pin);
+                else
+                    bcm2835_gpio_clr(port.rs_pin);
+
+                byte result = 0;
+
+                bcm2835_gpio_clr(port.e_pin);
+                bcm2835_delayMicroseconds(port.high_delay);
+                bcm2835_gpio_set(port.e_pin);
+                bcm2835_delayMicroseconds(port.low_delay);
+
+                if (bcm2835_gpio_lev(port.db7_pin))
+                    result |= 128;
+
+                if (bcm2835_gpio_lev(port.db6_pin))
+                    result |= 64;
+
+                if (bcm2835_gpio_lev(port.db5_pin))
+                    result |= 32;
+
+                if (bcm2835_gpio_lev(port.db4_pin))
+                    result |= 16;
+
+                bcm2835_gpio_clr(port.e_pin);
+                bcm2835_delayMicroseconds(port.high_delay);
+                bcm2835_gpio_set(port.e_pin);
+                bcm2835_delayMicroseconds(port.low_delay);
+
+                if (bcm2835_gpio_lev(port.db7_pin))
+                    result |= 8;
+
+                if (bcm2835_gpio_lev(port.db6_pin))
+                    result |= 4;
+
+                if (bcm2835_gpio_lev(port.db5_pin))
+                    result |= 2;
+
+                if (bcm2835_gpio_lev(port.db4_pin))
+                    result |= 1;
+
+                return result;
+            }
+
+            #endregion
+
         }
 
         public enum RPiDetectorEdge
@@ -1855,7 +2222,7 @@ namespace BCM2835
 
             public int[] pipeFd = new int[2];
             public int dataFd;
-            public Action<short> callback;
+            public Action<RPiGPIOPin, short> callback;
             public Pollfd[] descriptors = new Pollfd[2];
             public Thread eventThread;
             public RPiGPIOPin pin;
@@ -1866,6 +2233,41 @@ namespace BCM2835
 
         #endregion
 
+    }
+
+
+    public class bitbang_port
+    {
+        public BCM2835Managed.RPiGPIOPin input_pin;
+        public BCM2835Managed.RPiGPIOPin output_pin;
+        public BCM2835Managed.RPiGPIOPin clock_pin;
+        public bool positive_polarity;
+        public uint low_delay;
+        public uint high_delay;
+        
+    }
+
+    public class nibble_port
+    {
+        public BCM2835Managed.RPiGPIOPin db4_pin;
+        public BCM2835Managed.RPiGPIOPin db5_pin;
+        public BCM2835Managed.RPiGPIOPin db6_pin;
+        public BCM2835Managed.RPiGPIOPin db7_pin;
+        public BCM2835Managed.RPiGPIOPin e_pin;
+        public BCM2835Managed.RPiGPIOPin rs_pin;
+        public BCM2835Managed.RPiGPIOPin rw_pin;
+
+        public bool on_input;
+
+        public uint low_delay;
+        public uint high_delay;
+    }
+
+    public class nibble_command
+    {
+        public bool rw;
+        public bool rs;
+        public byte data;
     }
 
     public unsafe struct VolatilePointer
