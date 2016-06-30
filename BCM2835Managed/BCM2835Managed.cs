@@ -1056,7 +1056,48 @@ namespace BCM2835
             /* Set TA = 0, and also set the barrier */
             bcm2835_peri_set_bits(paddr, 0, BCM2835_SPI0_CS_TA);
         }
+        /* Writes (and reads) an number of bytes to SPI */
+        public static void bcm2835_spi_transfernb(ArraySegment<byte> tbuf, ArraySegment<byte> rbuf)
+        {
+            VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
+            VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
+            uint TXCnt = 0;
+            uint RXCnt = 0;
 
+            /* This is Polled transfer as per section 10.6.1
+            // BUG ALERT: what happens if we get interupted in this section, and someone else
+            // accesses a different peripheral? 
+            */
+
+            /* Clear TX and RX fifos */
+            bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_CLEAR, BCM2835_SPI0_CS_CLEAR);
+
+            /* Set TA = 1 */
+            bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_TA, BCM2835_SPI0_CS_TA);
+
+            /* Use the FIFO's to reduce the interbyte times */
+            while ((TXCnt < tbuf.Count) || (RXCnt < tbuf.Count))
+            {
+                /* TX fifo not full, so add some more bytes */
+                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_TXD) != 0) && (TXCnt < tbuf.Count))
+                {
+                    bcm2835_peri_write_nb(fifo, tbuf.Array[tbuf.Offset + TXCnt]);
+                    TXCnt++;
+                }
+                /* Rx fifo not empty, so get the next received bytes */
+                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_RXD) != 0) && (RXCnt < rbuf.Count))
+                {
+                    rbuf.Array[rbuf.Offset + RXCnt] = (byte)bcm2835_peri_read_nb(fifo);
+                    RXCnt++;
+                }
+            }
+            /* Wait for DONE to be set */
+            while ((bcm2835_peri_read_nb(paddr) & BCM2835_SPI0_CS_DONE) == 0)
+                ;
+
+            /* Set TA = 0, and also set the barrier */
+            bcm2835_peri_set_bits(paddr, 0, BCM2835_SPI0_CS_TA);
+        }
         /* Writes an number of bytes to SPI */
         public static void bcm2835_spi_writenb(byte[] tbuf, int len)
         {
@@ -1100,6 +1141,49 @@ namespace BCM2835
             /* Set TA = 0, and also set the barrier */
             bcm2835_peri_set_bits(paddr, 0, BCM2835_SPI0_CS_TA);
         }
+        /* Writes an number of bytes to SPI */
+        public static void bcm2835_spi_writenb(ArraySegment<byte> tbuf)
+        {
+            VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
+            VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
+            uint i;
+
+            /* This is Polled transfer as per section 10.6.1
+            // BUG ALERT: what happens if we get interupted in this section, and someone else
+            // accesses a different peripheral?
+            // Answer: an ISR is required to issue the required memory barriers.
+            */
+
+            /* Clear TX and RX fifos */
+            bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_CLEAR, BCM2835_SPI0_CS_CLEAR);
+
+            /* Set TA = 1 */
+            bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_TA, BCM2835_SPI0_CS_TA);
+
+            for (i = 0; i < tbuf.Count; i++)
+            {
+                /* Maybe wait for TXD */
+                while ((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_TXD) == 0)
+                    ;
+
+                /* Write to FIFO, no barrier */
+                bcm2835_peri_write_nb(fifo, tbuf.Array[i + tbuf.Offset]);
+
+                /* Read from FIFO to prevent stalling */
+                while ((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_RXD) != 0)
+                    bcm2835_peri_read_nb(fifo);
+            }
+
+            /* Wait for DONE to be set */
+            while ((bcm2835_peri_read_nb(paddr) & BCM2835_SPI0_CS_DONE) == 0)
+            {
+                while ((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_RXD) != 0)
+                    bcm2835_peri_read_nb(fifo);
+            };
+
+            /* Set TA = 0, and also set the barrier */
+            bcm2835_peri_set_bits(paddr, 0, BCM2835_SPI0_CS_TA);
+        }
 
         /* Writes (and reads) an number of bytes to SPI
         // Read bytes are copied over onto the transmit buffer
@@ -1107,6 +1191,13 @@ namespace BCM2835
         public static void bcm2835_spi_transfern(byte[] buf, int len)
         {
             bcm2835_spi_transfernb(buf, buf, len);
+        }
+        /* Writes (and reads) an number of bytes to SPI
+        // Read bytes are copied over onto the transmit buffer
+        */
+        public static void bcm2835_spi_transfern(ArraySegment<byte> buf)
+        {
+            bcm2835_spi_transfernb(buf, buf);
         }
 
         public static void bcm2835_spi_chipSelect(bcm2835SPIChipSelect cs)
@@ -1308,7 +1399,83 @@ namespace BCM2835
 
             return reason;
         }
+        /* Writes an number of bytes to I2C */
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write(ArraySegment<byte> buf)
+        {
+            VolatilePointer dlen;
+            VolatilePointer fifo;
+            VolatilePointer status;
+            VolatilePointer control;
+            if (i2cv1)
+            {
+                dlen = bcm2835_bsc0 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc0 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc0 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc0 + BCM2835_BSC_C / 4;
+            }
+            else
+            {
+                dlen = bcm2835_bsc1 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc1 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc1 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
+            }
 
+            int remaining = buf.Count;
+            uint i = 0;
+            bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
+
+            /* Clear FIFO */
+            bcm2835_peri_set_bits(control, BCM2835_BSC_C_CLEAR_1, BCM2835_BSC_C_CLEAR_1);
+            /* Clear Status */
+            bcm2835_peri_write(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
+            /* Set Data Length */
+            bcm2835_peri_write(dlen, (uint)buf.Count);
+            /* pre populate FIFO with max buffer */
+            while (remaining > 0 && i < BCM2835_BSC_FIFO_SIZE)
+            {
+                bcm2835_peri_write_nb(fifo, buf.Array[i + buf.Offset]);
+                i++;
+                remaining--;
+            }
+
+            /* Enable device and start transfer */
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST);
+
+            /* Transfer is over when BCM2835_BSC_S_DONE */
+            while ((bcm2835_peri_read(status) & BCM2835_BSC_S_DONE) == 0)
+            {
+                while (remaining != 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_TXD) != 0)
+                {
+                    /* Write to FIFO */
+                    bcm2835_peri_write(fifo, buf.Array[i + buf.Offset]);
+                    i++;
+                    remaining--;
+                }
+            }
+
+            /* Received a NACK */
+            if ((bcm2835_peri_read(status) & BCM2835_BSC_S_ERR) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_NACK;
+            }
+
+            /* Received Clock Stretch Timeout */
+            else if ((bcm2835_peri_read(status) & BCM2835_BSC_S_CLKT) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_CLKT;
+            }
+
+            /* Not all data is sent */
+            else if (remaining > 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_DATA;
+            }
+
+            bcm2835_peri_set_bits(control, BCM2835_BSC_S_DONE, BCM2835_BSC_S_DONE);
+
+            return reason;
+        }
         /* Read an number of bytes from I2C */
         public static bcm2835I2CReasonCodes bcm2835_i2c_read(byte[] buf, int len)
         {
@@ -1388,7 +1555,85 @@ namespace BCM2835
 
             return reason;
         }
+        /* Read an number of bytes from I2C */
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read(ArraySegment<byte> buf)
+        {
+            VolatilePointer dlen;
+            VolatilePointer fifo;
+            VolatilePointer status;
+            VolatilePointer control;
+            if (i2cv1)
+            {
+                dlen = bcm2835_bsc0 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc0 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc0 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc0 + BCM2835_BSC_C / 4;
+            }
+            else
+            {
+                dlen = bcm2835_bsc1 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc1 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc1 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
+            }
 
+            int remaining = buf.Count;
+            uint i = 0;
+            bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
+
+            /* Clear FIFO */
+            bcm2835_peri_set_bits(control, BCM2835_BSC_C_CLEAR_1, BCM2835_BSC_C_CLEAR_1);
+            /* Clear Status */
+            bcm2835_peri_write_nb(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
+            /* Set Data Length */
+            bcm2835_peri_write_nb(dlen, (uint)buf.Count);
+            /* Start read */
+            bcm2835_peri_write_nb(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
+
+            /* wait for transfer to complete */
+            while ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_DONE) == 0)
+            {
+                /* we must empty the FIFO as it is populated and not use any delay */
+                while ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_RXD) != 0)
+                {
+                    /* Read from FIFO, no barrier */
+                    buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read_nb(fifo);
+                    i++;
+                    remaining--;
+                }
+            }
+
+            /* transfer has finished - grab any remaining stuff in FIFO */
+            while (remaining > 0 && (bcm2835_peri_read_nb(status) & BCM2835_BSC_S_RXD) != 0)
+            {
+                /* Read from FIFO, no barrier */
+                buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read_nb(fifo);
+                i++;
+                remaining--;
+            }
+
+            /* Received a NACK */
+            if ((bcm2835_peri_read(status) & BCM2835_BSC_S_ERR) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_NACK;
+            }
+
+            /* Received Clock Stretch Timeout */
+            else if ((bcm2835_peri_read(status) & BCM2835_BSC_S_CLKT) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_CLKT;
+            }
+
+            /* Not all data is received */
+            else if (remaining > 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_DATA;
+            }
+
+            bcm2835_peri_set_bits(control, BCM2835_BSC_S_DONE, BCM2835_BSC_S_DONE);
+
+            return reason;
+        }
 
         /* Read an number of bytes from I2C sending a repeated start after writing
         // the required register. Only works if your device supports this mode
@@ -1463,6 +1708,105 @@ namespace BCM2835
             {
                 /* Read from FIFO */
                 buf[i] = (byte)bcm2835_peri_read(fifo);
+                i++;
+                remaining--;
+            }
+
+            /* Received a NACK */
+            if ((bcm2835_peri_read(status) & BCM2835_BSC_S_ERR) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_NACK;
+            }
+
+            /* Received Clock Stretch Timeout */
+            else if ((bcm2835_peri_read(status) & BCM2835_BSC_S_CLKT) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_CLKT;
+            }
+
+            /* Not all data is sent */
+            else if (remaining > 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_DATA;
+            }
+
+            bcm2835_peri_set_bits(control, BCM2835_BSC_S_DONE, BCM2835_BSC_S_DONE);
+
+            return reason;
+        }
+        /* Read an number of bytes from I2C sending a repeated start after writing
+        // the required register. Only works if your device supports this mode
+        */
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read_register_rs(byte regaddr, ArraySegment<byte> buf)
+        {
+            VolatilePointer dlen;
+            VolatilePointer fifo;
+            VolatilePointer status;
+            VolatilePointer control;
+
+            if (i2cv1)
+            {
+                dlen = bcm2835_bsc0 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc0 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc0 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc0 + BCM2835_BSC_C / 4;
+            }
+            else
+            {
+                dlen = bcm2835_bsc1 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc1 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc1 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
+            }
+
+            int remaining = buf.Count;
+            uint i = 0;
+            bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
+
+            /* Clear FIFO */
+            bcm2835_peri_set_bits(control, BCM2835_BSC_C_CLEAR_1, BCM2835_BSC_C_CLEAR_1);
+            /* Clear Status */
+            bcm2835_peri_write(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
+            /* Set Data Length */
+            bcm2835_peri_write(dlen, 1);
+            /* Enable device and start transfer */
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN);
+            bcm2835_peri_write(fifo, regaddr);
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST);
+
+            /* poll for transfer has started */
+            while ((bcm2835_peri_read(status) & BCM2835_BSC_S_TA) == 0)
+            {
+                /* Linux may cause us to miss entire transfer stage */
+                if ((bcm2835_peri_read(status) & BCM2835_BSC_S_DONE) != 0)
+                    break;
+            }
+
+            /* Send a repeated start with read bit set in address */
+            bcm2835_peri_write(dlen, (uint)buf.Count);
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
+
+            /* Wait for write to complete and first byte back. */
+            bcm2835_delayMicroseconds(i2c_byte_wait_us * 3);
+
+            /* wait for transfer to complete */
+            while ((bcm2835_peri_read(status) & BCM2835_BSC_S_DONE) == 0)
+            {
+                /* we must empty the FIFO as it is populated and not use any delay */
+                while (remaining > 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
+                {
+                    /* Read from FIFO */
+                    buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read(fifo);
+                    i++;
+                    remaining--;
+                }
+            }
+
+            /* transfer has finished - grab any remaining stuff in FIFO */
+            while (remaining > 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
+            {
+                /* Read from FIFO */
+                buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read(fifo);
                 i++;
                 remaining--;
             }
@@ -1602,6 +1946,122 @@ namespace BCM2835
             return reason;
         }
 
+        /* Sending an arbitrary number of bytes before issuing a repeated start 
+        // (with no prior stop) and reading a response. Some devices require this behavior.
+        */
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write_read_rs(ArraySegment<byte> cmds, ArraySegment<byte> buf)
+        {
+            VolatilePointer dlen;
+            VolatilePointer fifo;
+            VolatilePointer status;
+            VolatilePointer control;
+
+            if (i2cv1)
+            {
+                dlen = bcm2835_bsc0 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc0 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc0 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc0 + BCM2835_BSC_C / 4;
+            }
+            else
+            {
+                dlen = bcm2835_bsc1 + BCM2835_BSC_DLEN / 4;
+                fifo = bcm2835_bsc1 + BCM2835_BSC_FIFO / 4;
+                status = bcm2835_bsc1 + BCM2835_BSC_S / 4;
+                control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
+            }
+
+            int remaining = cmds.Count;
+            uint i = 0;
+            bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
+
+            /* Clear FIFO */
+            bcm2835_peri_set_bits(control, BCM2835_BSC_C_CLEAR_1, BCM2835_BSC_C_CLEAR_1);
+
+            /* Clear Status */
+            bcm2835_peri_write(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
+
+            /* Set Data Length */
+            bcm2835_peri_write(dlen, (uint)cmds.Count);
+
+            /* pre populate FIFO with max buffer */
+            while (remaining > 0 && (i < BCM2835_BSC_FIFO_SIZE))
+            {
+                bcm2835_peri_write_nb(fifo, cmds.Array[i + cmds.Offset]);
+                i++;
+                remaining--;
+            }
+
+            /* Enable device and start transfer */
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST);
+
+            /* poll for transfer has started (way to do repeated start, from BCM2835 datasheet) */
+            while ((bcm2835_peri_read(status) & BCM2835_BSC_S_TA) == 0)
+            {
+                /* Linux may cause us to miss entire transfer stage */
+                if ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_DONE) != 0)
+                    break;
+            }
+
+            remaining = buf.Count;
+            i = 0;
+
+            /* Send a repeated start with read bit set in address */
+            bcm2835_peri_write(dlen, (uint)buf.Count);
+            bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
+
+            /* Wait for write to complete and first byte back. */
+            bcm2835_delayMicroseconds(i2c_byte_wait_us * (cmds.Count + 1));
+
+            /* wait for transfer to complete */
+            while ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_DONE) == 0)
+            {
+                /* we must empty the FIFO as it is populated and not use any delay */
+                while (remaining > 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
+                {
+                    /* Read from FIFO, no barrier */
+                    buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read_nb(fifo);
+                    i++;
+                    remaining--;
+                }
+            }
+
+            /* transfer has finished - grab any remaining stuff in FIFO */
+            while (remaining > 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
+            {
+                /* Read from FIFO */
+                buf.Array[i + buf.Offset] = (byte)bcm2835_peri_read(fifo);
+                i++;
+                remaining--;
+            }
+
+            /* Received a NACK */
+            if ((bcm2835_peri_read(status) & BCM2835_BSC_S_ERR) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_NACK;
+            }
+
+            /* Received Clock Stretch Timeout */
+            else if ((bcm2835_peri_read(status) & BCM2835_BSC_S_CLKT) != 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_CLKT;
+            }
+
+            /* Not all data is sent */
+            else if (remaining > 0)
+            {
+                reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_ERROR_DATA;
+            }
+
+            bcm2835_peri_set_bits(control, BCM2835_BSC_S_DONE, BCM2835_BSC_S_DONE);
+
+            return reason;
+        }
+
+        #endregion
+
+        #region PWM
+
         public static void bcm2835_pwm_set_clock(bcm2835PWMClockDivider srcDivisor)
         {
             if (bcm2835_clk == (uint*)MAP_FAILED
@@ -1699,7 +2159,7 @@ namespace BCM2835
             static eventData[] events = new eventData[40];
 
 
-            public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge)
+            public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge, Action<RPiGPIOPin, short> callback)
             {
                 int pin_num = (int)pin;
 
@@ -1726,6 +2186,7 @@ namespace BCM2835
                 
                 currentEvent.used = true;
                 currentEvent.pin = pin;
+                currentEvent.callback = callback;
                 currentEvent.eventThread = new Thread(detectThread);
                 currentEvent.running = true;
                 currentEvent.eventThread.Start(pin_num);
