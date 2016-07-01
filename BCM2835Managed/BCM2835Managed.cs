@@ -406,26 +406,47 @@ namespace BCM2835
                     bcm2835_peripherals_size = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0);
             }
 
-            var memfd = Syscall.open("/dev/mem", OpenFlags.O_RDWR | OpenFlags.O_SYNC);
 
-            if (memfd < 0)
-                throw new InvalidOperationException("Cannot open /dev/mem");
+            if (Syscall.geteuid() == 0)
+            {
+                var memfd = Syscall.open("/dev/mem", OpenFlags.O_RDWR | OpenFlags.O_SYNC);
 
-            bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (uint)bcm2835_peripherals_base);
+                if (memfd < 0)
+                    throw new InvalidOperationException("Cannot open /dev/mem");
 
-            if (bcm2835_peripherals == (uint*)MAP_FAILED)
-                throw new InvalidOperationException("Cannot map peripherals");
+                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (uint)bcm2835_peripherals_base);
 
-            bcm2835_gpio = bcm2835_peripherals + BCM2835_GPIO_BASE / 4;
-            bcm2835_pwm = bcm2835_peripherals + BCM2835_GPIO_PWM / 4;
-            bcm2835_clk = bcm2835_peripherals + BCM2835_CLOCK_BASE / 4;
-            bcm2835_pads = bcm2835_peripherals + BCM2835_GPIO_PADS / 4;
-            bcm2835_spi0 = bcm2835_peripherals + BCM2835_SPI0_BASE / 4;
-            bcm2835_bsc0 = bcm2835_peripherals + BCM2835_BSC0_BASE / 4; /* I2C */
-            bcm2835_bsc1 = bcm2835_peripherals + BCM2835_BSC1_BASE / 4; /* I2C */
-            bcm2835_st = bcm2835_peripherals + BCM2835_ST_BASE / 4;
+                if (bcm2835_peripherals == (uint*)MAP_FAILED)
+                    throw new InvalidOperationException("Cannot map peripherals");
 
-            Syscall.close(memfd);
+                bcm2835_gpio = bcm2835_peripherals + BCM2835_GPIO_BASE / 4;
+                bcm2835_pwm = bcm2835_peripherals + BCM2835_GPIO_PWM / 4;
+                bcm2835_clk = bcm2835_peripherals + BCM2835_CLOCK_BASE / 4;
+                bcm2835_pads = bcm2835_peripherals + BCM2835_GPIO_PADS / 4;
+                bcm2835_spi0 = bcm2835_peripherals + BCM2835_SPI0_BASE / 4;
+                bcm2835_bsc0 = bcm2835_peripherals + BCM2835_BSC0_BASE / 4; /* I2C */
+                bcm2835_bsc1 = bcm2835_peripherals + BCM2835_BSC1_BASE / 4; /* I2C */
+                bcm2835_st = bcm2835_peripherals + BCM2835_ST_BASE / 4;
+
+                Syscall.close(memfd);
+            }
+            else
+            {
+                var memfd = Syscall.open("/dev/gpiomem", OpenFlags.O_RDWR | OpenFlags.O_SYNC);
+
+                if (memfd < 0)
+                    throw new InvalidOperationException("Cannot open /dev/mem");
+
+                bcm2835_peripherals_base = (uint*)0;
+                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (uint)bcm2835_peripherals_base);
+
+                if (bcm2835_peripherals == (uint*)MAP_FAILED)
+                    throw new InvalidOperationException("Cannot map peripherals");
+
+                bcm2835_gpio = bcm2835_peripherals;
+
+                Syscall.close(memfd);
+            }
         }
 
         public static void bcm2835_close()
