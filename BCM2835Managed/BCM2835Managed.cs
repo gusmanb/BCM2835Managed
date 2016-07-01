@@ -392,20 +392,22 @@ namespace BCM2835
         {
             byte[] buf = new byte[4];
 
-            using (var dtFileContent = File.OpenRead(BMC2835_RPI2_DT_FILENAME))
+            if (File.Exists(BMC2835_RPI2_DT_FILENAME))
             {
+                using (var dtFileContent = File.OpenRead(BMC2835_RPI2_DT_FILENAME))
+                {
 
-                dtFileContent.Seek(BMC2835_RPI2_DT_PERI_BASE_ADDRESS_OFFSET, SeekOrigin.Begin);
+                    dtFileContent.Seek(BMC2835_RPI2_DT_PERI_BASE_ADDRESS_OFFSET, SeekOrigin.Begin);
 
-                if (dtFileContent.Read(buf, 0, buf.Length) == buf.Length)
-                    bcm2835_peripherals_base = (uint*)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0);
+                    if (dtFileContent.Read(buf, 0, buf.Length) == buf.Length)
+                        bcm2835_peripherals_base = (uint*)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0);
 
-                dtFileContent.Seek(BMC2835_RPI2_DT_PERI_SIZE_OFFSET, SeekOrigin.Begin);
+                    dtFileContent.Seek(BMC2835_RPI2_DT_PERI_SIZE_OFFSET, SeekOrigin.Begin);
 
-                if (dtFileContent.Read(buf, 0, buf.Length) == buf.Length)
-                    bcm2835_peripherals_size = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0);
+                    if (dtFileContent.Read(buf, 0, buf.Length) == buf.Length)
+                        bcm2835_peripherals_size = (uint)(buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0);
+                }
             }
-
 
             if (Syscall.geteuid() == 0)
             {
