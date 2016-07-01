@@ -1015,7 +1015,7 @@ namespace BCM2835
         }
 
         /* Writes (and reads) an number of bytes to SPI */
-        public static void bcm2835_spi_transfernb(byte[] tbuf, byte[] rbuf, int len)
+        public static void bcm2835_spi_transfernb(byte[] tbuf, byte[] rbuf)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
@@ -1034,16 +1034,16 @@ namespace BCM2835
             bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_TA, BCM2835_SPI0_CS_TA);
 
             /* Use the FIFO's to reduce the interbyte times */
-            while ((TXCnt < len) || (RXCnt < len))
+            while ((TXCnt < tbuf.Length) || (RXCnt < tbuf.Length))
             {
                 /* TX fifo not full, so add some more bytes */
-                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_TXD) != 0) && (TXCnt < len))
+                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_TXD) != 0) && (TXCnt < tbuf.Length))
                 {
                     bcm2835_peri_write_nb(fifo, tbuf[TXCnt]);
                     TXCnt++;
                 }
                 /* Rx fifo not empty, so get the next received bytes */
-                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_RXD) != 0) && (RXCnt < len))
+                while (((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_RXD) != 0) && (RXCnt < tbuf.Length))
                 {
                     rbuf[RXCnt] = (byte)bcm2835_peri_read_nb(fifo);
                     RXCnt++;
@@ -1099,7 +1099,7 @@ namespace BCM2835
             bcm2835_peri_set_bits(paddr, 0, BCM2835_SPI0_CS_TA);
         }
         /* Writes an number of bytes to SPI */
-        public static void bcm2835_spi_writenb(byte[] tbuf, int len)
+        public static void bcm2835_spi_writenb(byte[] tbuf)
         {
             VolatilePointer paddr = bcm2835_spi0 + BCM2835_SPI0_CS / 4;
             VolatilePointer fifo = bcm2835_spi0 + BCM2835_SPI0_FIFO / 4;
@@ -1117,7 +1117,7 @@ namespace BCM2835
             /* Set TA = 1 */
             bcm2835_peri_set_bits(paddr, BCM2835_SPI0_CS_TA, BCM2835_SPI0_CS_TA);
 
-            for (i = 0; i < len; i++)
+            for (i = 0; i < tbuf.Length; i++)
             {
                 /* Maybe wait for TXD */
                 while ((bcm2835_peri_read(paddr) & BCM2835_SPI0_CS_TXD) == 0)
@@ -1188,9 +1188,9 @@ namespace BCM2835
         /* Writes (and reads) an number of bytes to SPI
         // Read bytes are copied over onto the transmit buffer
         */
-        public static void bcm2835_spi_transfern(byte[] buf, int len)
+        public static void bcm2835_spi_transfern(byte[] buf)
         {
-            bcm2835_spi_transfernb(buf, buf, len);
+            bcm2835_spi_transfernb(buf, buf);
         }
         /* Writes (and reads) an number of bytes to SPI
         // Read bytes are copied over onto the transmit buffer
@@ -1323,7 +1323,7 @@ namespace BCM2835
         }
 
         /* Writes an number of bytes to I2C */
-        public static bcm2835I2CReasonCodes bcm2835_i2c_write(byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write(byte[] buf)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1344,7 +1344,7 @@ namespace BCM2835
                 control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
             }
 
-            int remaining = len;
+            int remaining = buf.Length;
             uint i = 0;
             bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
 
@@ -1353,7 +1353,7 @@ namespace BCM2835
             /* Clear Status */
             bcm2835_peri_write(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
             /* Set Data Length */
-            bcm2835_peri_write(dlen, (uint)len);
+            bcm2835_peri_write(dlen, (uint)buf.Length);
             /* pre populate FIFO with max buffer */
             while (remaining > 0 && i < BCM2835_BSC_FIFO_SIZE)
             {
@@ -1477,7 +1477,7 @@ namespace BCM2835
             return reason;
         }
         /* Read an number of bytes from I2C */
-        public static bcm2835I2CReasonCodes bcm2835_i2c_read(byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read(byte[] buf)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1498,7 +1498,7 @@ namespace BCM2835
                 control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
             }
 
-            int remaining = len;
+            int remaining = buf.Length;
             uint i = 0;
             bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
 
@@ -1507,7 +1507,7 @@ namespace BCM2835
             /* Clear Status */
             bcm2835_peri_write_nb(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
             /* Set Data Length */
-            bcm2835_peri_write_nb(dlen, (uint)len);
+            bcm2835_peri_write_nb(dlen, (uint)buf.Length);
             /* Start read */
             bcm2835_peri_write_nb(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
 
@@ -1638,7 +1638,7 @@ namespace BCM2835
         /* Read an number of bytes from I2C sending a repeated start after writing
         // the required register. Only works if your device supports this mode
         */
-        public static bcm2835I2CReasonCodes bcm2835_i2c_read_register_rs(byte regaddr, byte[] buf, int len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_read_register_rs(byte regaddr, byte[] buf)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1660,7 +1660,7 @@ namespace BCM2835
                 control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
             }
 
-            int remaining = len;
+            int remaining = buf.Length;
             uint i = 0;
             bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
 
@@ -1684,7 +1684,7 @@ namespace BCM2835
             }
 
             /* Send a repeated start with read bit set in address */
-            bcm2835_peri_write(dlen, (uint)len);
+            bcm2835_peri_write(dlen, (uint)buf.Length);
             bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
 
             /* Wait for write to complete and first byte back. */
@@ -1837,7 +1837,7 @@ namespace BCM2835
         /* Sending an arbitrary number of bytes before issuing a repeated start 
         // (with no prior stop) and reading a response. Some devices require this behavior.
         */
-        public static bcm2835I2CReasonCodes bcm2835_i2c_write_read_rs(byte[] cmds, int cmds_len, byte[] buf, int buf_len)
+        public static bcm2835I2CReasonCodes bcm2835_i2c_write_read_rs(byte[] cmds, byte[] buf)
         {
             VolatilePointer dlen;
             VolatilePointer fifo;
@@ -1859,7 +1859,7 @@ namespace BCM2835
                 control = bcm2835_bsc1 + BCM2835_BSC_C / 4;
             }
 
-            int remaining = cmds_len;
+            int remaining = cmds.Length;
             uint i = 0;
             bcm2835I2CReasonCodes reason = bcm2835I2CReasonCodes.BCM2835_I2C_REASON_OK;
 
@@ -1870,7 +1870,7 @@ namespace BCM2835
             bcm2835_peri_write(status, BCM2835_BSC_S_CLKT | BCM2835_BSC_S_ERR | BCM2835_BSC_S_DONE);
 
             /* Set Data Length */
-            bcm2835_peri_write(dlen, (uint)cmds_len);
+            bcm2835_peri_write(dlen, (uint)cmds.Length);
 
             /* pre populate FIFO with max buffer */
             while (remaining > 0 && (i < BCM2835_BSC_FIFO_SIZE))
@@ -1891,15 +1891,15 @@ namespace BCM2835
                     break;
             }
 
-            remaining = buf_len;
+            remaining = buf.Length;
             i = 0;
 
             /* Send a repeated start with read bit set in address */
-            bcm2835_peri_write(dlen, (uint)buf_len);
+            bcm2835_peri_write(dlen, (uint)buf.Length);
             bcm2835_peri_write(control, BCM2835_BSC_C_I2CEN | BCM2835_BSC_C_ST | BCM2835_BSC_C_READ);
 
             /* Wait for write to complete and first byte back. */
-            bcm2835_delayMicroseconds(i2c_byte_wait_us * (cmds_len + 1));
+            bcm2835_delayMicroseconds(i2c_byte_wait_us * (cmds.Length + 1));
 
             /* wait for transfer to complete */
             while ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_DONE) == 0)
@@ -2311,31 +2311,24 @@ namespace BCM2835
 
             #region BitBang
 
-            public static bitbang_port create_bitbang_port(RPiGPIOPin input_pin, RPiGPIOPin output_pin, RPiGPIOPin clock_pin, bool positive_polarity, uint low_delay, uint high_delay)
+            static void configure_bitbang_port(bitbang_port port)
             {
-                bitbang_port def = new bitbang_port
-                {
-                    clock_pin = clock_pin,
-                    input_pin = input_pin,
-                    output_pin = output_pin,
-                    positive_polarity = positive_polarity,
-                    high_delay = high_delay,
-                    low_delay = low_delay
-                };
+                bcm2835_gpio_fsel(port.input_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+                bcm2835_gpio_fsel(port.output_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.clock_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
 
-                bcm2835_gpio_fsel(def.input_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-                bcm2835_gpio_fsel(def.output_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(def.clock_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_clr(port.output_pin);
+                bcm2835_gpio_clr(port.clock_pin);
 
-                bcm2835_gpio_clr(def.output_pin);
-                bcm2835_gpio_clr(def.clock_pin);
-
-                return def;
-
+                port.needs_update = false;
             }
 
             public static byte read_bitbang_byte(bitbang_port port)
             {
+
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
                 byte value = 0;
                 byte c = 0;
                 if (port.positive_polarity)
@@ -2366,6 +2359,10 @@ namespace BCM2835
 
             public static void read_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
             {
+
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
                 byte value = 0;
                 uint x = 0;
                 byte c = 0;
@@ -2407,8 +2404,58 @@ namespace BCM2835
                 }
             }
 
+            public static void read_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
+            {
+
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
+                byte value = 0;
+                uint x = 0;
+                byte c = 0;
+
+                if (port.positive_polarity)
+                {
+                    for (x = 0; x < buffer.Count; x++)
+                    {
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                        }
+
+                        buffer.Array[x + buffer.Offset] = value;
+                        value = 0;
+
+                    }
+                }
+                else
+                {
+                    for (x = 0; x < buffer.Count; x++)
+                    {
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+                        }
+
+                        buffer.Array[x + buffer.Offset] = value;
+                        value = 0;
+                    }
+                }
+            }
+
             public static void write_bitbang_byte(bitbang_port port, byte data)
             {
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
                 byte c = 0;
 
                 if (port.positive_polarity)
@@ -2447,6 +2494,10 @@ namespace BCM2835
 
             public static void write_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
             {
+
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
                 byte data = 0;
                 uint x = 0;
                 byte c = 0;
@@ -2495,53 +2546,102 @@ namespace BCM2835
                 }
             }
 
+            public static void write_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
+            {
+
+                if (port.needs_update)
+                    configure_bitbang_port(port);
+
+                byte data = 0;
+                uint x = 0;
+                byte c = 0;
+
+                if (port.positive_polarity)
+                {
+                    for (x = 0; x < buffer.Count; x++)
+                    {
+                        data = buffer.Array[x + buffer.Offset];
+
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+
+                            if ((data & (1 << c)) != 0)
+                                bcm2835_gpio_set(port.output_pin);
+                            else
+                                bcm2835_gpio_clr(port.output_pin);
+
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                        }
+                    }
+                }
+                else
+                {
+                    for (x = 0; x < buffer.Count; x++)
+                    {
+                        data = buffer.Array[x + buffer.Offset];
+
+                        for (c = 0; c < 8; c++)
+                        {
+                            bcm2835_gpio_set(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.low_delay);
+
+                            if ((data & (1 << c)) != 0)
+                                bcm2835_gpio_set(port.output_pin);
+                            else
+                                bcm2835_gpio_clr(port.output_pin);
+
+                            bcm2835_gpio_clr(port.clock_pin);
+                            bcm2835_delayMicroseconds(port.high_delay);
+                        }
+                    }
+                }
+            }
+
             #endregion
 
             #region Nibble
 
-            public static nibble_port create_nibble_port(RPiGPIOPin db4_pin, RPiGPIOPin db5_pin, RPiGPIOPin db6_pin, RPiGPIOPin db7_pin, RPiGPIOPin rs_pin, RPiGPIOPin rw_pin, RPiGPIOPin e_pin, uint low_delay, uint high_delay)
+            static void configure_nibble_port(nibble_port port)
             {
-                nibble_port port = new nibble_port
-                {
-                    db4_pin = db4_pin,
-                    db5_pin = db5_pin,
-                    db6_pin = db6_pin,
-                    db7_pin = db7_pin,
-                    e_pin = e_pin,
-                    rs_pin = rs_pin,
-                    rw_pin = rw_pin,
-                    high_delay = high_delay,
-                    low_delay = low_delay
-                };
+                bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.e_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.rs_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_fsel(port.rw_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
 
-                bcm2835_gpio_fsel(db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(e_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(rs_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(rw_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+                bcm2835_gpio_clr(port.db4_pin);
+                bcm2835_gpio_clr(port.db5_pin);
+                bcm2835_gpio_clr(port.db6_pin);
+                bcm2835_gpio_clr(port.db7_pin);
+                bcm2835_gpio_clr(port.rs_pin);
+                bcm2835_gpio_clr(port.rw_pin);
+                bcm2835_gpio_clr(port.e_pin);
 
-                bcm2835_gpio_clr(db4_pin);
-                bcm2835_gpio_clr(db5_pin);
-                bcm2835_gpio_clr(db6_pin);
-                bcm2835_gpio_clr(db7_pin);
-                bcm2835_gpio_clr(rs_pin);
-                bcm2835_gpio_clr(rw_pin);
-                bcm2835_gpio_clr(e_pin);
-
-                return port;
+                port.on_input = false;
             }
 
             public static void write_nibble_byte(nibble_port port, bool rs, byte data, bool onlyHalf)
             {
+                if (port.needs_update)
+                    configure_nibble_port(port);
+
                 if (port.on_input)
                 {
                     bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
                     bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
                     bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
                     bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                    
+
+                    bcm2835_gpio_clr(port.db4_pin);
+                    bcm2835_gpio_clr(port.db5_pin);
+                    bcm2835_gpio_clr(port.db6_pin);
+                    bcm2835_gpio_clr(port.db7_pin);
+
                     port.on_input = false;
                 }
 
@@ -2610,6 +2710,9 @@ namespace BCM2835
 
             public static byte read_nibble_byte(nibble_port port, bool rs)
             {
+                if (port.needs_update)
+                    configure_nibble_port(port);
+
                 if (!port.on_input)
                 {
                     bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
@@ -2705,6 +2808,7 @@ namespace BCM2835
         public bool positive_polarity;
         public uint low_delay;
         public uint high_delay;
+        public bool needs_update = true;
         
     }
 
@@ -2717,20 +2821,13 @@ namespace BCM2835
         public BCM2835Managed.RPiGPIOPin e_pin;
         public BCM2835Managed.RPiGPIOPin rs_pin;
         public BCM2835Managed.RPiGPIOPin rw_pin;
-
         public bool on_input;
-
         public uint low_delay;
         public uint high_delay;
-    }
+        public bool needs_update = true;
 
-    public class nibble_command
-    {
-        public bool rw;
-        public bool rs;
-        public byte data;
     }
-
+    
     public unsafe struct VolatilePointer
     {
         public volatile uint* Address;
