@@ -1839,7 +1839,7 @@ namespace BCM2835
                         return true;
 
                     string cmd = ((int)pin).ToString() + "\n";
-                    File.WriteAllBytes("/sys/class/gpio/export", Encoding.ASCII.GetBytes(cmd));
+                    File.WriteAllBytes("/sys/class/gpio/unexport", Encoding.ASCII.GetBytes(cmd));
                     events[(int)pin].exported = false;
                     return true;
                 }
