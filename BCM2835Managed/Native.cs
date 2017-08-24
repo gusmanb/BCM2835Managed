@@ -30,7 +30,19 @@ namespace BCM2835
 
         [DllImport("libc", SetLastError = true)]
         public static extern int munmap(IntPtr address, uint length);
-        
+
+        [DllImport("libc", SetLastError = true)]
+        public static extern int poll(Pollfd[] fds, int count, int timeout);
+
+        [DllImport("libc", SetLastError = true)]
+        public static extern int pipe(int[] pipefd);
+
+        [DllImport("libc", SetLastError = true)]
+        public static unsafe extern int read(int fd, void* buf, int count);
+
+        [DllImport("libc", SetLastError = true)]
+        public static extern int lseek(int fd, int offset, SeekFlags whence);
+
         public static int fopen(string File, string Mode)
         {
 
@@ -120,6 +132,33 @@ namespace BCM2835
             MAP_NONBLOCK = 65536,
             MAP_STACK = 131072,
             MAP_HUGETLB = 262144
+        }
+
+        public struct Pollfd
+        {
+            public int fd;
+            public PollEvents events;
+            public PollEvents revents;
+        }
+
+        public enum PollEvents : short
+        {
+            POLLIN = 0x0001,
+            POLLPRI = 0x0002,
+            POLLOUT = 0x0004,
+            POLLERR = 0x0008,
+            POLLHUP = 0x0010,
+            POLLNVAL = 0x0020
+        }
+
+        public enum SeekFlags : int
+        {
+            SEEK_SET = 0,   /* seek relative to beginning of file */
+            SEEK_CUR = 1,   /* seek relative to current file position */
+            SEEK_END = 2,   /* seek relative to end of file */
+            SEEK_DATA = 3,  /* seek to the next data */
+            SEEK_HOLE = 4,  /* seek to the next hole */
+            SEEK_MAX = SEEK_HOLE
         }
     }
 }
