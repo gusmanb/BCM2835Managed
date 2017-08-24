@@ -5,7 +5,6 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Mono.Unix.Native;
 using System.IO;
 
 namespace BCM2835
@@ -388,7 +387,7 @@ namespace BCM2835
 
         #region Life cycle
 
-        public static void bcm2835_init()
+        public static bool bcm2835_init()
         {
             byte[] buf = new byte[4];
 
@@ -409,14 +408,14 @@ namespace BCM2835
                 }
             }
 
-            if (Syscall.geteuid() == 0)
+            if (Native.geteuid() == 0)
             {
-                var memfd = Syscall.open("/dev/mem", OpenFlags.O_RDWR | OpenFlags.O_SYNC);
+                var memfd = Native.open("/dev/mem", Native.OpenFlags.O_RDWR | Native.OpenFlags.O_SYNC);
 
                 if (memfd < 0)
                     throw new InvalidOperationException("Cannot open /dev/mem");
 
-                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (uint)bcm2835_peripherals_base);
+                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (int)bcm2835_peripherals_base);
 
                 if (bcm2835_peripherals == (uint*)MAP_FAILED)
                     throw new InvalidOperationException("Cannot map peripherals");
@@ -430,24 +429,28 @@ namespace BCM2835
                 bcm2835_bsc1 = bcm2835_peripherals + BCM2835_BSC1_BASE / 4; /* I2C */
                 bcm2835_st = bcm2835_peripherals + BCM2835_ST_BASE / 4;
 
-                Syscall.close(memfd);
+                Native.close(memfd);
+
+                return true;
             }
             else
             {
-                var memfd = Syscall.open("/dev/gpiomem", OpenFlags.O_RDWR | OpenFlags.O_SYNC);
+                var memfd = Native.open("/dev/gpiomem", Native.OpenFlags.O_RDWR | Native.OpenFlags.O_SYNC);
 
                 if (memfd < 0)
                     throw new InvalidOperationException("Cannot open /dev/mem");
 
                 bcm2835_peripherals_base = (uint*)0;
-                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (uint)bcm2835_peripherals_base);
+                bcm2835_peripherals = (uint*)mapmem(bcm2835_peripherals_size, memfd, (int)bcm2835_peripherals_base);
 
                 if (bcm2835_peripherals == (uint*)MAP_FAILED)
                     throw new InvalidOperationException("Cannot map peripherals");
 
                 bcm2835_gpio = bcm2835_peripherals;
 
-                Syscall.close(memfd);
+                Native.close(memfd);
+
+                return false;
             }
         }
 
@@ -472,16 +475,16 @@ namespace BCM2835
         /* Map 'size' bytes starting at 'off' in file 'fd' to memory.
         // Return mapped address on success, MAP_FAILED otherwise.
         */
-        static void* mapmem(ulong size, int fd, long off)
+        static void* mapmem(uint size, int fd, int off)
         {
-            IntPtr map = Syscall.mmap(IntPtr.Zero, size, MmapProts.PROT_READ | MmapProts.PROT_WRITE, MmapFlags.MAP_SHARED, fd, off);
+            IntPtr map = Native.mmap(IntPtr.Zero, size, Native.MMapProt.PROT_READ | Native.MMapProt.PROT_WRITE, Native.MMapFlags.MAP_SHARED, fd, off);
             return map.ToPointer();
         }
 
-        static void unmapmem(ref uint* pmem, ulong size)
+        static void unmapmem(ref uint* pmem, uint size)
         {
             if (pmem == (uint*)MAP_FAILED) return;
-            Syscall.munmap(new IntPtr(pmem), size);
+            Native.munmap(new IntPtr(pmem), size);
             pmem = (uint*)MAP_FAILED;
         }
 
@@ -525,46 +528,18 @@ namespace BCM2835
         */
         public static void bcm2835_delay(uint millis)
         {
-            Timespec sleeper = new Timespec();
-            Timespec rest = new Timespec();
-
-            sleeper.tv_sec = millis / 1000;
-            sleeper.tv_nsec = (long)(millis % 1000) * 1000000;
-            Syscall.nanosleep(ref sleeper, ref rest);
+           Thread.Sleep((int)millis);
         }
 
         /* Delays for the specified number of microseconds with offset */
-        public static void bcm2835_st_delay(long offset_micros, long micros)
-        {
-            long compare = offset_micros + micros;
-
-            while (bcm2835_st_read() < compare)
-                ;
-        }
-
-        /* microseconds */
         public static void bcm2835_delayMicroseconds(long micros)
         {
-            Timespec t1 = new Timespec();
-            Timespec rest = new Timespec();
-            long start;
+            long start = bcm2835_st_read();
+            long compare = start + micros;
 
-
-            /* Calling nanosleep() takes at least 100-200 us, so use it for
-            // long waits and use a busy wait on the System Timer for the rest.
-            */
-            start = bcm2835_st_read();
-
-            if (micros > 450)
-            {
-                t1.tv_sec = 0;
-                t1.tv_nsec = 1000 * (long)(micros - 200);
-                Syscall.nanosleep(ref t1, ref rest);
-            }
-
-            bcm2835_st_delay(start, micros);
+            while (bcm2835_st_read() < compare);
         }
-
+        
         #endregion
 
         #region Peripherals
@@ -602,9 +577,9 @@ namespace BCM2835
         {
             uint ret;
 
-            Thread.MemoryBarrier();
+            Interlocked.MemoryBarrier();
             ret = *paddr.Address;
-            Thread.MemoryBarrier();
+            Interlocked.MemoryBarrier();
             return ret;
 
         }
@@ -626,11 +601,9 @@ namespace BCM2835
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void bcm2835_peri_write(VolatilePointer paddr, uint value)
         {
-            Syscall.sync();
-
-            Thread.MemoryBarrier();
+            Interlocked.MemoryBarrier();
             *paddr.Address = value;
-            Thread.MemoryBarrier();
+            Interlocked.MemoryBarrier();
 
         }
 
@@ -1928,7 +1901,7 @@ namespace BCM2835
             while ((bcm2835_peri_read_nb(status) & BCM2835_BSC_S_DONE) == 0)
             {
                 /* we must empty the FIFO as it is populated and not use any delay */
-                while (remaining > 0 && ( bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
+                while (remaining > 0 && (bcm2835_peri_read(status) & BCM2835_BSC_S_RXD) != 0)
                 {
                     /* Read from FIFO, no barrier */
                     buf[i] = (byte)bcm2835_peri_read_nb(fifo);
@@ -2168,655 +2141,655 @@ namespace BCM2835
         #endregion
 
         #region Extras
-        public static unsafe class GPIOExtras
-        {
-            
-            static GPIOExtras()
-            {
-                for (int buc = 0; buc < 40; buc++)
-                    events[buc] = new eventData();
-            }
-
-            #region Eventos
-
-            static eventData[] events = new eventData[40];
-
-
-            public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge, Action<RPiGPIOPin, short> callback)
-            {
-                int pin_num = (int)pin;
-
-                if (events[pin_num].used)
-                    return false;
-
-                if (!export_pin(pin))
-                    return false;
-
-                if (!set_detect_edge(pin, edge))
-                    return false;
-                
-                var currentEvent = events[pin_num];
-                currentEvent.dataFd = Syscall.open(string.Format("/sys/class/gpio/gpio{0}/value", pin_num), OpenFlags.O_RDWR);
-
-                if (currentEvent.dataFd < 1)
-                    return false;
-
-                if (Syscall.pipe(currentEvent.pipeFd) == -1)
-                {
-                    Syscall.close(currentEvent.dataFd);
-                    return false;
-                }
-                
-                currentEvent.used = true;
-                currentEvent.pin = pin;
-                currentEvent.callback = callback;
-                currentEvent.eventThread = new Thread(detectThread);
-                currentEvent.running = true;
-                currentEvent.eventThread.Start(pin_num);
-
-                return true;
-            }
-
-            public static void remove_event_detector(RPiGPIOPin pin)
-            {
-                int pin_num = (int)pin;
-
-                if(!events[pin_num].used)
-                    return;
-
-                var data = events[pin_num];
-                data.running = false;
-                Syscall.close(data.dataFd);
-                Syscall.close(data.pipeFd[0]);
-                Syscall.close(data.pipeFd[1]);
-                data.eventThread.Abort();
-                data.callback = null;
-                set_detect_edge(pin, RPiDetectorEdge.None);
-                unexport_pin(pin);
-                data.used = false;
-            }
-
-            public static bool set_detect_edge(RPiGPIOPin pin, RPiDetectorEdge edge)
-            {
-                if (!export_pin(pin))
-                    return false;
-
-                try
-                {
-
-                    string cmd = edge.ToString().ToLower() + "\n";
-                    File.WriteAllBytes(string.Format("/sys/class/gpio/gpio{0}/edge", (int)pin), Encoding.ASCII.GetBytes(cmd));
-                    return true;
-                }
-                catch { return false; }
-
-            }
-
-            static void detectThread(object State)
-            {
-                int pin_num = (int)State;
-
-                var data = events[pin_num];
-
-                Pollfd[] descriptors = new Pollfd[2];
-
-                descriptors[0].fd = data.pipeFd[1];
-                descriptors[0].events = PollEvents.POLLIN | PollEvents.POLLPRI;
-                descriptors[1].fd = data.dataFd;
-                descriptors[1].events = PollEvents.POLLPRI;
-
-                int pollResult;
-                byte readValue;
-
-                try
-                {
-                    while (data.running)
-                    {
-                        descriptors[0].revents = 0;
-                        descriptors[1].revents = 0;
-
-                        pollResult = Syscall.poll(descriptors, 2, -1);
-
-                        if (pollResult > 0)
-                        {
-                            if (descriptors[0].revents != 0)// || (pollResult & (POLLERR | POLLHUP | POLLNVAL)))
-                            {
-
-                                data.callback(data.pin, descriptors[0].revents != 0 ? (short)-1 : (short)-2);
-                                remove_event_detector((RPiGPIOPin)pin_num);
-                                return;
-                            }
-
-                            Syscall.read(data.dataFd, &readValue, 1);
-                            Syscall.lseek(data.dataFd, 0, SeekFlags.SEEK_SET);
-
-                            data.callback(data.pin, readValue);
-                        }
-                    }
-                }
-                catch
-                { }
-            }
-
-            static bool export_pin(RPiGPIOPin pin)
-            {
-                if (events[(int)pin].exported)
-                    return true;
-
-                try
-                {
-
-                    string cmd = ((int)pin).ToString() + "\n";
-                    File.WriteAllBytes("/sys/class/gpio/export", Encoding.ASCII.GetBytes(cmd));
-                    events[(int)pin].exported = true;
-                    return true;
-                }
-                catch { return false; }
-            }
-
-            static bool unexport_pin(RPiGPIOPin pin)
-            {
-                try
-                {
-
-                    if (!events[(int)pin].exported)
-                        return true;
-
-                    string cmd = ((int)pin).ToString() + "\n";
-                    File.WriteAllBytes("/sys/class/gpio/unexport", Encoding.ASCII.GetBytes(cmd));
-                    events[(int)pin].exported = false;
-                    return true;
-                }
-                catch { return false; }
-            }
-
-            #endregion
-
-            #region BitBang
-
-            static void configure_bitbang_port(bitbang_port port)
-            {
-                bcm2835_gpio_fsel(port.input_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-                bcm2835_gpio_fsel(port.output_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.clock_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-
-                bcm2835_gpio_clr(port.output_pin);
-                bcm2835_gpio_clr(port.clock_pin);
-
-                port.needs_update = false;
-            }
-
-            public static byte read_bitbang_byte(bitbang_port port)
-            {
-
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte value = 0;
-                byte c = 0;
-                if (port.positive_polarity)
-                {
-                    for (c = 0; c < 8; c++)
-                    {
-                        bcm2835_gpio_clr(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-                        bcm2835_gpio_set(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.high_delay);
-                        value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                    }
-                }
-                else
-                {
-                    for (c = 0; c < 8; c++)
-                    {
-                        bcm2835_gpio_set(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-                        bcm2835_gpio_clr(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.high_delay);
-                        value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                    }
-                }
-
-                return value;
-            }
-
-            public static void read_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
-            {
-
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte value = 0;
-                uint x = 0;
-                byte c = 0;
-
-                if (port.positive_polarity)
-                {
-                    for (x = 0; x < length; x++)
-                    {
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                        }
-
-                        buffer[x] = value;
-                        value = 0;
-
-                    }
-                }
-                else
-                {
-                    for (x = 0; x < length; x++)
-                    {
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                        }
-
-                        buffer[x] = value;
-                        value = 0;
-                    }
-                }
-            }
-
-            public static void read_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
-            {
-
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte value = 0;
-                uint x = 0;
-                byte c = 0;
-
-                if (port.positive_polarity)
-                {
-                    for (x = 0; x < buffer.Count; x++)
-                    {
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                        }
-
-                        buffer.Array[x + buffer.Offset] = value;
-                        value = 0;
-
-                    }
-                }
-                else
-                {
-                    for (x = 0; x < buffer.Count; x++)
-                    {
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                            value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
-                        }
-
-                        buffer.Array[x + buffer.Offset] = value;
-                        value = 0;
-                    }
-                }
-            }
-
-            public static void write_bitbang_byte(bitbang_port port, byte data)
-            {
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte c = 0;
-
-                if (port.positive_polarity)
-                {
-                    for (c = 0; c < 8; c++)
-                    {
-                        bcm2835_gpio_clr(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-
-                        if ((data & (1 << c)) != 0)
-                            bcm2835_gpio_set(port.output_pin);
-                        else
-                            bcm2835_gpio_clr(port.output_pin);
-
-                        bcm2835_gpio_set(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-                    }
-                }
-                else
-                {
-                    for (c = 0; c < 8; c++)
-                    {
-                        bcm2835_gpio_set(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-
-                        if ((data & (1 << c)) != 0)
-                            bcm2835_gpio_set(port.output_pin);
-                        else
-                            bcm2835_gpio_clr(port.output_pin);
-
-                        bcm2835_gpio_clr(port.clock_pin);
-                        bcm2835_delayMicroseconds(port.low_delay);
-                    }
-                }
-            }
-
-            public static void write_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
-            {
-
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte data = 0;
-                uint x = 0;
-                byte c = 0;
-
-                if (port.positive_polarity)
-                {
-                    for (x = 0; x < length; x++)
-                    {
-                        data = buffer[x];
-
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-
-                            if ((data & (1 << c)) != 0)
-                                bcm2835_gpio_set(port.output_pin);
-                            else
-                                bcm2835_gpio_clr(port.output_pin);
-
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                        }
-                    }
-                }
-                else
-                {
-                    for (x = 0; x < length; x++)
-                    {
-                        data = buffer[x];
-
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-
-                            if ((data & (1 << c)) != 0)
-                                bcm2835_gpio_set(port.output_pin);
-                            else
-                                bcm2835_gpio_clr(port.output_pin);
-
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                        }
-                    }
-                }
-            }
-
-            public static void write_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
-            {
-
-                if (port.needs_update)
-                    configure_bitbang_port(port);
-
-                byte data = 0;
-                uint x = 0;
-                byte c = 0;
-
-                if (port.positive_polarity)
-                {
-                    for (x = 0; x < buffer.Count; x++)
-                    {
-                        data = buffer.Array[x + buffer.Offset];
-
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-
-                            if ((data & (1 << c)) != 0)
-                                bcm2835_gpio_set(port.output_pin);
-                            else
-                                bcm2835_gpio_clr(port.output_pin);
-
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                        }
-                    }
-                }
-                else
-                {
-                    for (x = 0; x < buffer.Count; x++)
-                    {
-                        data = buffer.Array[x + buffer.Offset];
-
-                        for (c = 0; c < 8; c++)
-                        {
-                            bcm2835_gpio_set(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.low_delay);
-
-                            if ((data & (1 << c)) != 0)
-                                bcm2835_gpio_set(port.output_pin);
-                            else
-                                bcm2835_gpio_clr(port.output_pin);
-
-                            bcm2835_gpio_clr(port.clock_pin);
-                            bcm2835_delayMicroseconds(port.high_delay);
-                        }
-                    }
-                }
-            }
-
-            #endregion
-
-            #region Nibble
-
-            static void configure_nibble_port(nibble_port port)
-            {
-                bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.e_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.rs_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                bcm2835_gpio_fsel(port.rw_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-
-                bcm2835_gpio_clr(port.db4_pin);
-                bcm2835_gpio_clr(port.db5_pin);
-                bcm2835_gpio_clr(port.db6_pin);
-                bcm2835_gpio_clr(port.db7_pin);
-                bcm2835_gpio_clr(port.rs_pin);
-                bcm2835_gpio_clr(port.rw_pin);
-                bcm2835_gpio_clr(port.e_pin);
-
-                port.on_input = false;
-            }
-
-            public static void write_nibble_byte(nibble_port port, bool rs, byte data, bool onlyHalf)
-            {
-                if (port.needs_update)
-                    configure_nibble_port(port);
-
-                if (port.on_input)
-                {
-                    bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                    bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                    bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-                    bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
-
-                    bcm2835_gpio_clr(port.db4_pin);
-                    bcm2835_gpio_clr(port.db5_pin);
-                    bcm2835_gpio_clr(port.db6_pin);
-                    bcm2835_gpio_clr(port.db7_pin);
-
-                    port.on_input = false;
-                }
-
-                bcm2835_gpio_clr(port.rw_pin);
-
-                if (rs)
-                    bcm2835_gpio_set(port.rs_pin);
-                else
-                    bcm2835_gpio_clr(port.rs_pin);
-
-
-                if ((data & 128) != 0)
-                    bcm2835_gpio_set(port.db7_pin);
-                else
-                    bcm2835_gpio_clr(port.db7_pin);
-
-                if ((data & 64) != 0)
-                    bcm2835_gpio_set(port.db6_pin);
-                else
-                    bcm2835_gpio_clr(port.db6_pin);
-
-                if ((data & 32) != 0)
-                    bcm2835_gpio_set(port.db5_pin);
-                else
-                    bcm2835_gpio_clr(port.db5_pin);
-
-                if ((data & 16) != 0)
-                    bcm2835_gpio_set(port.db4_pin);
-                else
-                    bcm2835_gpio_clr(port.db4_pin);
-
-                bcm2835_gpio_clr(port.e_pin);
-                bcm2835_delayMicroseconds(port.high_delay);
-                bcm2835_gpio_set(port.e_pin);
-                bcm2835_delayMicroseconds(port.low_delay);
-
-                if (onlyHalf)
-                    return;
-
-                if ((data & 8) != 0)
-                    bcm2835_gpio_set(port.db7_pin);
-                else
-                    bcm2835_gpio_clr(port.db7_pin);
-
-                if ((data & 4) != 0)
-                    bcm2835_gpio_set(port.db6_pin);
-                else
-                    bcm2835_gpio_clr(port.db6_pin);
-
-                if ((data & 2) != 0)
-                    bcm2835_gpio_set(port.db5_pin);
-                else
-                    bcm2835_gpio_clr(port.db5_pin);
-
-                if ((data & 1) != 0)
-                    bcm2835_gpio_set(port.db4_pin);
-                else
-                    bcm2835_gpio_clr(port.db4_pin);
-
-                bcm2835_gpio_clr(port.e_pin);
-                bcm2835_delayMicroseconds(port.high_delay);
-                bcm2835_gpio_set(port.e_pin);
-                bcm2835_delayMicroseconds(port.low_delay);
-
-            }
-
-            public static byte read_nibble_byte(nibble_port port, bool rs)
-            {
-                if (port.needs_update)
-                    configure_nibble_port(port);
-
-                if (!port.on_input)
-                {
-                    bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-                    bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-                    bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-                    bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
-
-                    port.on_input = true;
-                }
-
-                bcm2835_gpio_set(port.rw_pin);
-
-                if (rs)
-                    bcm2835_gpio_set(port.rs_pin);
-                else
-                    bcm2835_gpio_clr(port.rs_pin);
-
-                byte result = 0;
-
-                bcm2835_gpio_clr(port.e_pin);
-                bcm2835_delayMicroseconds(port.high_delay);
-                bcm2835_gpio_set(port.e_pin);
-                bcm2835_delayMicroseconds(port.low_delay);
-
-                if (bcm2835_gpio_lev(port.db7_pin))
-                    result |= 128;
-
-                if (bcm2835_gpio_lev(port.db6_pin))
-                    result |= 64;
-
-                if (bcm2835_gpio_lev(port.db5_pin))
-                    result |= 32;
-
-                if (bcm2835_gpio_lev(port.db4_pin))
-                    result |= 16;
-
-                bcm2835_gpio_clr(port.e_pin);
-                bcm2835_delayMicroseconds(port.high_delay);
-                bcm2835_gpio_set(port.e_pin);
-                bcm2835_delayMicroseconds(port.low_delay);
-
-                if (bcm2835_gpio_lev(port.db7_pin))
-                    result |= 8;
-
-                if (bcm2835_gpio_lev(port.db6_pin))
-                    result |= 4;
-
-                if (bcm2835_gpio_lev(port.db5_pin))
-                    result |= 2;
-
-                if (bcm2835_gpio_lev(port.db4_pin))
-                    result |= 1;
-
-                return result;
-            }
-
-            #endregion
-
-        }
-
-        public enum RPiDetectorEdge
-        {
-            None,
-            Rising,
-            Falling,
-            Both
-        }
-
-        internal unsafe class eventData
-        {
-
-            public int[] pipeFd = new int[2];
-            public int dataFd;
-            public Action<RPiGPIOPin, short> callback;
-            public Pollfd[] descriptors = new Pollfd[2];
-            public Thread eventThread;
-            public RPiGPIOPin pin;
-            public bool exported = false;
-            public bool used = false;
-            public bool running = false;
-        }
+        //public static unsafe class GPIOExtras
+        //{
+
+        //    static GPIOExtras()
+        //    {
+        //        for (int buc = 0; buc < 40; buc++)
+        //            events[buc] = new eventData();
+        //    }
+
+        //    #region Eventos
+
+        //    static eventData[] events = new eventData[40];
+
+
+        //    public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge, Action<RPiGPIOPin, short> callback)
+        //    {
+        //        int pin_num = (int)pin;
+
+        //        if (events[pin_num].used)
+        //            return false;
+
+        //        if (!export_pin(pin))
+        //            return false;
+
+        //        if (!set_detect_edge(pin, edge))
+        //            return false;
+
+        //        var currentEvent = events[pin_num];
+        //        currentEvent.dataFd = Syscall.open(string.Format("/sys/class/gpio/gpio{0}/value", pin_num), OpenFlags.O_RDWR);
+
+        //        if (currentEvent.dataFd < 1)
+        //            return false;
+
+        //        if (Syscall.pipe(currentEvent.pipeFd) == -1)
+        //        {
+        //            Syscall.close(currentEvent.dataFd);
+        //            return false;
+        //        }
+
+        //        currentEvent.used = true;
+        //        currentEvent.pin = pin;
+        //        currentEvent.callback = callback;
+        //        currentEvent.eventThread = new Thread(detectThread);
+        //        currentEvent.running = true;
+        //        currentEvent.eventThread.Start(pin_num);
+
+        //        return true;
+        //    }
+
+        //    public static void remove_event_detector(RPiGPIOPin pin)
+        //    {
+        //        int pin_num = (int)pin;
+
+        //        if (!events[pin_num].used)
+        //            return;
+
+        //        var data = events[pin_num];
+        //        data.running = false;
+        //        Syscall.close(data.dataFd);
+        //        Syscall.close(data.pipeFd[0]);
+        //        Syscall.close(data.pipeFd[1]);
+        //        data.eventThread.Abort();
+        //        data.callback = null;
+        //        set_detect_edge(pin, RPiDetectorEdge.None);
+        //        unexport_pin(pin);
+        //        data.used = false;
+        //    }
+
+        //    public static bool set_detect_edge(RPiGPIOPin pin, RPiDetectorEdge edge)
+        //    {
+        //        if (!export_pin(pin))
+        //            return false;
+
+        //        try
+        //        {
+
+        //            string cmd = edge.ToString().ToLower() + "\n";
+        //            File.WriteAllBytes(string.Format("/sys/class/gpio/gpio{0}/edge", (int)pin), Encoding.ASCII.GetBytes(cmd));
+        //            return true;
+        //        }
+        //        catch { return false; }
+
+        //    }
+
+        //    static void detectThread(object State)
+        //    {
+        //        int pin_num = (int)State;
+
+        //        var data = events[pin_num];
+
+        //        Pollfd[] descriptors = new Pollfd[2];
+
+        //        descriptors[0].fd = data.pipeFd[1];
+        //        descriptors[0].events = PollEvents.POLLIN | PollEvents.POLLPRI;
+        //        descriptors[1].fd = data.dataFd;
+        //        descriptors[1].events = PollEvents.POLLPRI;
+
+        //        int pollResult;
+        //        byte readValue;
+
+        //        try
+        //        {
+        //            while (data.running)
+        //            {
+        //                descriptors[0].revents = 0;
+        //                descriptors[1].revents = 0;
+
+        //                pollResult = Syscall.poll(descriptors, 2, -1);
+
+        //                if (pollResult > 0)
+        //                {
+        //                    if (descriptors[0].revents != 0)// || (pollResult & (POLLERR | POLLHUP | POLLNVAL)))
+        //                    {
+
+        //                        data.callback(data.pin, descriptors[0].revents != 0 ? (short)-1 : (short)-2);
+        //                        remove_event_detector((RPiGPIOPin)pin_num);
+        //                        return;
+        //                    }
+
+        //                    Syscall.read(data.dataFd, &readValue, 1);
+        //                    Syscall.lseek(data.dataFd, 0, SeekFlags.SEEK_SET);
+
+        //                    data.callback(data.pin, readValue);
+        //                }
+        //            }
+        //        }
+        //        catch
+        //        { }
+        //    }
+
+        //    static bool export_pin(RPiGPIOPin pin)
+        //    {
+        //        if (events[(int)pin].exported)
+        //            return true;
+
+        //        try
+        //        {
+
+        //            string cmd = ((int)pin).ToString() + "\n";
+        //            File.WriteAllBytes("/sys/class/gpio/export", Encoding.ASCII.GetBytes(cmd));
+        //            events[(int)pin].exported = true;
+        //            return true;
+        //        }
+        //        catch { return false; }
+        //    }
+
+        //    static bool unexport_pin(RPiGPIOPin pin)
+        //    {
+        //        try
+        //        {
+
+        //            if (!events[(int)pin].exported)
+        //                return true;
+
+        //            string cmd = ((int)pin).ToString() + "\n";
+        //            File.WriteAllBytes("/sys/class/gpio/unexport", Encoding.ASCII.GetBytes(cmd));
+        //            events[(int)pin].exported = false;
+        //            return true;
+        //        }
+        //        catch { return false; }
+        //    }
+
+        //    #endregion
+
+        //    #region BitBang
+
+        //    static void configure_bitbang_port(bitbang_port port)
+        //    {
+        //        bcm2835_gpio_fsel(port.input_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+        //        bcm2835_gpio_fsel(port.output_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.clock_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+
+        //        bcm2835_gpio_clr(port.output_pin);
+        //        bcm2835_gpio_clr(port.clock_pin);
+
+        //        port.needs_update = false;
+        //    }
+
+        //    public static byte read_bitbang_byte(bitbang_port port)
+        //    {
+
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte value = 0;
+        //        byte c = 0;
+        //        if (port.positive_polarity)
+        //        {
+        //            for (c = 0; c < 8; c++)
+        //            {
+        //                bcm2835_gpio_clr(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+        //                bcm2835_gpio_set(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.high_delay);
+        //                value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (c = 0; c < 8; c++)
+        //            {
+        //                bcm2835_gpio_set(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+        //                bcm2835_gpio_clr(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.high_delay);
+        //                value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //            }
+        //        }
+
+        //        return value;
+        //    }
+
+        //    public static void read_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
+        //    {
+
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte value = 0;
+        //        uint x = 0;
+        //        byte c = 0;
+
+        //        if (port.positive_polarity)
+        //        {
+        //            for (x = 0; x < length; x++)
+        //            {
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                    value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //                }
+
+        //                buffer[x] = value;
+        //                value = 0;
+
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (x = 0; x < length; x++)
+        //            {
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                    value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //                }
+
+        //                buffer[x] = value;
+        //                value = 0;
+        //            }
+        //        }
+        //    }
+
+        //    public static void read_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
+        //    {
+
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte value = 0;
+        //        uint x = 0;
+        //        byte c = 0;
+
+        //        if (port.positive_polarity)
+        //        {
+        //            for (x = 0; x < buffer.Count; x++)
+        //            {
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                    value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //                }
+
+        //                buffer.Array[x + buffer.Offset] = value;
+        //                value = 0;
+
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (x = 0; x < buffer.Count; x++)
+        //            {
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                    value = (byte)(value | ((bcm2835_gpio_lev(port.input_pin) ? 1 : 0) << c));
+        //                }
+
+        //                buffer.Array[x + buffer.Offset] = value;
+        //                value = 0;
+        //            }
+        //        }
+        //    }
+
+        //    public static void write_bitbang_byte(bitbang_port port, byte data)
+        //    {
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte c = 0;
+
+        //        if (port.positive_polarity)
+        //        {
+        //            for (c = 0; c < 8; c++)
+        //            {
+        //                bcm2835_gpio_clr(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+
+        //                if ((data & (1 << c)) != 0)
+        //                    bcm2835_gpio_set(port.output_pin);
+        //                else
+        //                    bcm2835_gpio_clr(port.output_pin);
+
+        //                bcm2835_gpio_set(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (c = 0; c < 8; c++)
+        //            {
+        //                bcm2835_gpio_set(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+
+        //                if ((data & (1 << c)) != 0)
+        //                    bcm2835_gpio_set(port.output_pin);
+        //                else
+        //                    bcm2835_gpio_clr(port.output_pin);
+
+        //                bcm2835_gpio_clr(port.clock_pin);
+        //                bcm2835_delayMicroseconds(port.low_delay);
+        //            }
+        //        }
+        //    }
+
+        //    public static void write_bitbang_buffer(bitbang_port port, byte[] buffer, int length)
+        //    {
+
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte data = 0;
+        //        uint x = 0;
+        //        byte c = 0;
+
+        //        if (port.positive_polarity)
+        //        {
+        //            for (x = 0; x < length; x++)
+        //            {
+        //                data = buffer[x];
+
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+
+        //                    if ((data & (1 << c)) != 0)
+        //                        bcm2835_gpio_set(port.output_pin);
+        //                    else
+        //                        bcm2835_gpio_clr(port.output_pin);
+
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                }
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (x = 0; x < length; x++)
+        //            {
+        //                data = buffer[x];
+
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+
+        //                    if ((data & (1 << c)) != 0)
+        //                        bcm2835_gpio_set(port.output_pin);
+        //                    else
+        //                        bcm2835_gpio_clr(port.output_pin);
+
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                }
+        //            }
+        //        }
+        //    }
+
+        //    public static void write_bitbang_buffer(bitbang_port port, ArraySegment<byte> buffer)
+        //    {
+
+        //        if (port.needs_update)
+        //            configure_bitbang_port(port);
+
+        //        byte data = 0;
+        //        uint x = 0;
+        //        byte c = 0;
+
+        //        if (port.positive_polarity)
+        //        {
+        //            for (x = 0; x < buffer.Count; x++)
+        //            {
+        //                data = buffer.Array[x + buffer.Offset];
+
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+
+        //                    if ((data & (1 << c)) != 0)
+        //                        bcm2835_gpio_set(port.output_pin);
+        //                    else
+        //                        bcm2835_gpio_clr(port.output_pin);
+
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                }
+        //            }
+        //        }
+        //        else
+        //        {
+        //            for (x = 0; x < buffer.Count; x++)
+        //            {
+        //                data = buffer.Array[x + buffer.Offset];
+
+        //                for (c = 0; c < 8; c++)
+        //                {
+        //                    bcm2835_gpio_set(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.low_delay);
+
+        //                    if ((data & (1 << c)) != 0)
+        //                        bcm2835_gpio_set(port.output_pin);
+        //                    else
+        //                        bcm2835_gpio_clr(port.output_pin);
+
+        //                    bcm2835_gpio_clr(port.clock_pin);
+        //                    bcm2835_delayMicroseconds(port.high_delay);
+        //                }
+        //            }
+        //        }
+        //    }
+
+        //    #endregion
+
+        //    #region Nibble
+
+        //    static void configure_nibble_port(nibble_port port)
+        //    {
+        //        bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.e_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.rs_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //        bcm2835_gpio_fsel(port.rw_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+
+        //        bcm2835_gpio_clr(port.db4_pin);
+        //        bcm2835_gpio_clr(port.db5_pin);
+        //        bcm2835_gpio_clr(port.db6_pin);
+        //        bcm2835_gpio_clr(port.db7_pin);
+        //        bcm2835_gpio_clr(port.rs_pin);
+        //        bcm2835_gpio_clr(port.rw_pin);
+        //        bcm2835_gpio_clr(port.e_pin);
+
+        //        port.on_input = false;
+        //    }
+
+        //    public static void write_nibble_byte(nibble_port port, bool rs, byte data, bool onlyHalf)
+        //    {
+        //        if (port.needs_update)
+        //            configure_nibble_port(port);
+
+        //        if (port.on_input)
+        //        {
+        //            bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //            bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //            bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+        //            bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_OUTP);
+
+        //            bcm2835_gpio_clr(port.db4_pin);
+        //            bcm2835_gpio_clr(port.db5_pin);
+        //            bcm2835_gpio_clr(port.db6_pin);
+        //            bcm2835_gpio_clr(port.db7_pin);
+
+        //            port.on_input = false;
+        //        }
+
+        //        bcm2835_gpio_clr(port.rw_pin);
+
+        //        if (rs)
+        //            bcm2835_gpio_set(port.rs_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.rs_pin);
+
+
+        //        if ((data & 128) != 0)
+        //            bcm2835_gpio_set(port.db7_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db7_pin);
+
+        //        if ((data & 64) != 0)
+        //            bcm2835_gpio_set(port.db6_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db6_pin);
+
+        //        if ((data & 32) != 0)
+        //            bcm2835_gpio_set(port.db5_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db5_pin);
+
+        //        if ((data & 16) != 0)
+        //            bcm2835_gpio_set(port.db4_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db4_pin);
+
+        //        bcm2835_gpio_clr(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.high_delay);
+        //        bcm2835_gpio_set(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.low_delay);
+
+        //        if (onlyHalf)
+        //            return;
+
+        //        if ((data & 8) != 0)
+        //            bcm2835_gpio_set(port.db7_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db7_pin);
+
+        //        if ((data & 4) != 0)
+        //            bcm2835_gpio_set(port.db6_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db6_pin);
+
+        //        if ((data & 2) != 0)
+        //            bcm2835_gpio_set(port.db5_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db5_pin);
+
+        //        if ((data & 1) != 0)
+        //            bcm2835_gpio_set(port.db4_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.db4_pin);
+
+        //        bcm2835_gpio_clr(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.high_delay);
+        //        bcm2835_gpio_set(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.low_delay);
+
+        //    }
+
+        //    public static byte read_nibble_byte(nibble_port port, bool rs)
+        //    {
+        //        if (port.needs_update)
+        //            configure_nibble_port(port);
+
+        //        if (!port.on_input)
+        //        {
+        //            bcm2835_gpio_fsel(port.db4_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+        //            bcm2835_gpio_fsel(port.db5_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+        //            bcm2835_gpio_fsel(port.db6_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+        //            bcm2835_gpio_fsel(port.db7_pin, bcm2835FunctionSelect.BCM2835_GPIO_FSEL_INPT);
+
+        //            port.on_input = true;
+        //        }
+
+        //        bcm2835_gpio_set(port.rw_pin);
+
+        //        if (rs)
+        //            bcm2835_gpio_set(port.rs_pin);
+        //        else
+        //            bcm2835_gpio_clr(port.rs_pin);
+
+        //        byte result = 0;
+
+        //        bcm2835_gpio_clr(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.high_delay);
+        //        bcm2835_gpio_set(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.low_delay);
+
+        //        if (bcm2835_gpio_lev(port.db7_pin))
+        //            result |= 128;
+
+        //        if (bcm2835_gpio_lev(port.db6_pin))
+        //            result |= 64;
+
+        //        if (bcm2835_gpio_lev(port.db5_pin))
+        //            result |= 32;
+
+        //        if (bcm2835_gpio_lev(port.db4_pin))
+        //            result |= 16;
+
+        //        bcm2835_gpio_clr(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.high_delay);
+        //        bcm2835_gpio_set(port.e_pin);
+        //        bcm2835_delayMicroseconds(port.low_delay);
+
+        //        if (bcm2835_gpio_lev(port.db7_pin))
+        //            result |= 8;
+
+        //        if (bcm2835_gpio_lev(port.db6_pin))
+        //            result |= 4;
+
+        //        if (bcm2835_gpio_lev(port.db5_pin))
+        //            result |= 2;
+
+        //        if (bcm2835_gpio_lev(port.db4_pin))
+        //            result |= 1;
+
+        //        return result;
+        //    }
+
+        //    #endregion
+
+        //}
+
+        //public enum RPiDetectorEdge
+        //{
+        //    None,
+        //    Rising,
+        //    Falling,
+        //    Both
+        //}
+
+        //internal unsafe class eventData
+        //{
+
+        //    public int[] pipeFd = new int[2];
+        //    public int dataFd;
+        //    public Action<RPiGPIOPin, short> callback;
+        //    public Pollfd[] descriptors = new Pollfd[2];
+        //    public Thread eventThread;
+        //    public RPiGPIOPin pin;
+        //    public bool exported = false;
+        //    public bool used = false;
+        //    public bool running = false;
+        //}
 
         #endregion
 
@@ -2832,7 +2805,7 @@ namespace BCM2835
         public uint low_delay;
         public uint high_delay;
         public bool needs_update = true;
-        
+
     }
 
     public class nibble_port
@@ -2850,7 +2823,7 @@ namespace BCM2835
         public bool needs_update = true;
 
     }
-    
+
     public unsafe struct VolatilePointer
     {
         public volatile uint* Address;
