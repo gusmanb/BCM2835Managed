@@ -2,7 +2,7 @@
 
 C# implementation of the BCM2835 library by Mike McCauley (http://www.airspayce.com/mikem/bcm2835/index.html)
 
-No dependencies on any package or library, pure C# code.
+No dependencies, pure C# code.
 
 ### UPDATE 24-08-2017
 * Library converted to .net Standard.
