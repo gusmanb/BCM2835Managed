@@ -41,7 +41,7 @@ namespace HighLevelObjects
             if (!rpi.bcm2835_spi_begin())
                 throw new InvalidOperationException("Cannot open SPI port, check privileges");
 
-            rpi.bcm2835_i2c_begin(Model == RaspberryModel.RPi1, HighSpeedCore);
+            rpi.bcm2835_i2c_begin(false, HighSpeedCore);
             Frequency = rpi.bcm2835_i2c_set_baudrate(DesiredFrequency, HighSpeedCore);
             rpi.bcm2835_i2c_setSlaveAddress(SlaveAddress);
         }
