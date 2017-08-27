@@ -33,12 +33,19 @@ namespace TestHLO
              * Remember to execute it with root privileges!
              */
 
+
+            //Remember always to initialize the chip!!
             BCM2835.BCM2835Managed.bcm2835_init();
 
+            //Create new pin            
             GPIOPin up = new GPIOPin(BCM2835.BCM2835Managed.RPiGPIOPin.RPI_V2_GPIO_P1_37);
+            //Configure it as input
             up.Function = GPIOFunction.Input;
+            //Enable pull-ups
             up.PullControl = GPIOPullControl.PullUp;
+            //Detect both edges
             up.Edge = Edge.Both;
+            //Hook to the event detector
             up.EventDetected += Up_EventDetected;
 
             GPIOPin down = new GPIOPin(BCM2835.BCM2835Managed.RPiGPIOPin.RPI_V2_GPIO_P1_35);
@@ -92,6 +99,8 @@ namespace TestHLO
             left.Dispose();
             right.Dispose();
             button.Dispose();
+
+            BCM2835.BCM2835Managed.bcm2835_close();
         }
 
         private static void Button_EventDetected(object sender, SignalEventArgs e)
