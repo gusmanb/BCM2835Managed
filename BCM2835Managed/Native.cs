@@ -43,6 +43,9 @@ namespace BCM2835
         [DllImport("libc", SetLastError = true)]
         public static extern int lseek(int fd, int offset, SeekFlags whence);
 
+        [DllImport("libc", SetLastError = true)]
+        public unsafe static extern int write(int fd, void* buf, int size);
+
         public static int fopen(string File, string Mode)
         {
 

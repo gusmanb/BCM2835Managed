@@ -141,7 +141,9 @@ namespace HighLevelObjects
             try
             {
                 if (eventDetected != null)
-                    eventDetected(this, new SignalEventArgs { Signal = value == 0 ? false : true, Pin = currentPin });
+                {
+                    eventDetected(this, new SignalEventArgs { Signal = (value & 1) == 1 ? true : false, Pin = currentPin });
+                }
             }
             catch (Exception e)
             {

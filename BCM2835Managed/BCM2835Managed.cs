@@ -577,7 +577,6 @@ namespace BCM2835
         public static uint bcm2835_peri_read(VolatilePointer paddr)
         {
             uint ret;
-
             Interlocked.MemoryBarrier();
             ret = *paddr.Address;
             Interlocked.MemoryBarrier();
@@ -652,6 +651,7 @@ namespace BCM2835
         {
             /* Function selects are 10 pins per 32 bit word, 3 bits per pin */
             VolatilePointer paddr = bcm2835_gpio + BCM2835_GPFSEL0 / 4 + ((byte)pin / 10);
+            
             byte shift = (byte)(((byte)pin % 10) * 3);
             uint mask = (uint)bcm2835FunctionSelect.BCM2835_GPIO_FSEL_MASK << shift;
             uint value = (uint)((byte)mode << shift);
@@ -2181,36 +2181,46 @@ namespace BCM2835
 
         #region EventDetector 
 
-        //TODO: Test!!!
         public static unsafe class GPIOExtras
         {
 
             static GPIOExtras()
             {
                 for (int buc = 0; buc < 40; buc++)
+                {
                     events[buc] = new eventData();
+                    unexport_pin((RPiGPIOPin)buc, true);
+                }
             }
-            
+
             static eventData[] events = new eventData[40];
-            
+
             public static bool set_event_detector(RPiGPIOPin pin, RPiDetectorEdge edge, Action<RPiGPIOPin, short> callback)
             {
                 int pin_num = (int)pin;
 
                 if (events[pin_num].used)
+                {
                     return false;
+                }
 
                 if (!export_pin(pin))
+                {
                     return false;
+                }
 
                 if (!set_detect_edge(pin, edge))
+                {
                     return false;
+                }
 
                 var currentEvent = events[pin_num];
                 currentEvent.dataFd = Native.open(string.Format("/sys/class/gpio/gpio{0}/value", pin_num), Native.OpenFlags.O_RDWR);
 
                 if (currentEvent.dataFd < 1)
+                {
                     return false;
+                }
 
                 if (Native.pipe(currentEvent.pipeFd) == -1)
                 {
@@ -2240,7 +2250,6 @@ namespace BCM2835
                 Native.close(data.dataFd);
                 Native.close(data.pipeFd[0]);
                 Native.close(data.pipeFd[1]);
-                data.eventThread.Abort();
                 data.callback = null;
                 set_detect_edge(pin, RPiDetectorEdge.None);
                 unexport_pin(pin);
@@ -2290,7 +2299,7 @@ namespace BCM2835
 
                         if (pollResult > 0)
                         {
-                            if (descriptors[0].revents != 0)// || (pollResult & (POLLERR | POLLHUP | POLLNVAL)))
+                            if (descriptors[0].revents != 0)
                             {
 
                                 data.callback(data.pin, descriptors[0].revents != 0 ? (short)-1 : (short)-2);
@@ -2317,7 +2326,6 @@ namespace BCM2835
 
                 try
                 {
-
                     string cmd = ((int)pin).ToString() + "\n";
                     File.WriteAllBytes("/sys/class/gpio/export", Encoding.ASCII.GetBytes(cmd));
                     events[(int)pin].exported = true;
@@ -2326,14 +2334,14 @@ namespace BCM2835
                 catch { return false; }
             }
 
-            static bool unexport_pin(RPiGPIOPin pin)
+            static bool unexport_pin(RPiGPIOPin pin, bool force = false)
             {
                 try
                 {
 
-                    if (!events[(int)pin].exported)
+                    if (!events[(int)pin].exported && !force)
                         return true;
-
+                    
                     string cmd = ((int)pin).ToString() + "\n";
                     File.WriteAllBytes("/sys/class/gpio/unexport", Encoding.ASCII.GetBytes(cmd));
                     events[(int)pin].exported = false;
